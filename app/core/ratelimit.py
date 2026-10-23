@@ -27,16 +27,30 @@ class RateLimiter:
             self._redis = aioredis.from_url(self._settings.redis_url)
         return self._redis
 
-    async def allow(self, user_id: int | None, cost: float = 1.0) -> bool:
+    async def allow(
+        self,
+        user_id: int | None,
+        cost: float = 1.0,
+        rate: float | None = None,
+        burst: int | None = None,
+    ) -> bool:
+        """检查是否放行。
+
+        rate/burst 不传则用配置默认值；中间件可按路径类型传更严格的参数。
+        """
         settings = self._settings
+        rate = rate if rate is not None else settings.rate_limit_qps
+        burst = burst if burst is not None else settings.rate_limit_burst
+
         try:
             pipe = self.redis.pipeline(transaction=True)
             now = time.time()
             if user_id is not None:
-                pipe.eval(LUA_TAKE, 2, f"rl:u:{user_id}", "", now, cost,
-                          settings.rate_limit_qps, settings.rate_limit_burst)
-            pipe.eval(LUA_TAKE, 2, "rl:global", "", now, cost,
-                      settings.rate_limit_qps * 20, settings.rate_limit_burst * 20)
+                pipe.eval(LUA_TAKE, 2, f"rl:u:{user_id}", "", now, cost, rate, burst)
+            pipe.eval(
+                LUA_TAKE, 2, "rl:global", "", now, cost,
+                rate * 20, burst * 20,
+            )
             results = await pipe.execute()
             return all(results)
         except RedisError:

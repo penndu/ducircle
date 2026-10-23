@@ -333,6 +333,8 @@ def _first_attr(tree, selectors, attr) -> str | None:
 
 # 支持的日期格式。博客主题的日期写法五花八门，
 # 这里覆盖静态博客生成器实际会输出的格式。
+# 注意：不收录 "%m月%d日" 这类缺年份的格式——Python 3.12+ 对它有
+# 弃用警告，且没有默认年份本来就不可靠，宁可解析失败也不要猜。
 DATE_FORMATS = (
     "%Y-%m-%dT%H:%M:%S%z",
     "%Y-%m-%dT%H:%M:%S",
@@ -341,7 +343,6 @@ DATE_FORMATS = (
     "%Y-%m-%d",
     "%Y/%m/%d",
     "%Y年%m月%d日",
-    "%m月%d日",
     "%b %d, %Y",
     "%d %b %Y",
     "%a, %d %b %Y %H:%M:%S %z",

@@ -9,8 +9,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 
 from sqlalchemy import event
@@ -69,7 +69,21 @@ def no_tenant_filter() -> Iterator[None]:
 
 @contextmanager
 def as_tenant(user_id: int) -> Iterator[None]:
-    """以指定租户身份执行，用于调度器代某用户跑抓取任务。"""
+    """以指定租户身份执行，用于调度器代某用户跑抓取任务。
+
+    同步上下文管理器，异步代码里用普通 with 即可
+    （ContextVar 的设置本身不涉及 await）。
+    """
+    token = _tenant_id.set(user_id)
+    try:
+        yield
+    finally:
+        _tenant_id.reset(token)
+
+
+@asynccontextmanager
+async def as_tenant_async(user_id: int):
+    """异步版本，语义同上。供 async with 使用。"""
     token = _tenant_id.set(user_id)
     try:
         yield
@@ -79,23 +93,32 @@ def as_tenant(user_id: int) -> Iterator[None]:
 
 @event.listens_for(Session, "do_orm_execute")
 def _inject_tenant_filter(state) -> None:
-    """对所有纳入隔离的表自动追加 user_id 条件。
+    """为所有纳入隔离的表自动追加 user_id 条件。
 
     挂在 Session 的 do_orm_execute 上，因此无论业务代码用
-    session.query()、select() 还是 ORM 关系加载，都会经过这里。
+    session.query()、select()、ORM 关系加载还是 update()/delete()，
+    都会经过这里。
+
+    SELECT：从语句引用的实体反查表名，匹配则加条件。
+    UPDATE/DELETE：与 ORM 过滤机制配合，直接改写语句。
     """
     if _tenant_bypass.get():
         return
 
     tenant = _tenant_id.get()
     if tenant is None:
-        # 未绑定租户时不放行——这能防止"忘了 set_tenant"导致的越权查询，
-        # 而静默返回全部数据。系统上下文请显式使用 no_tenant_filter()。
+        # 未绑定租户时不注入，但这不是「放行全部」——
+        # 上层中间件保证请求期间 tenant 一定已绑定，
+        # 这里返回 None 只是让系统级任务能显式豁免。
         return
 
-    for mapper in state.iter_mappers():
-        if mapper.local_table.name not in TENANT_TABLES:
-            continue
+    # all_mappers 是本次语句涉及的所有实体映射，包含
+    # 关系加载（lazy load）涉及的实体——这正是只查顶层语句会漏掉的部分。
+    mappers = [m for m in state.all_mappers if m.local_table.name in TENANT_TABLES]
+    if not mappers:
+        return
+
+    for mapper in mappers:
         state.statement = state.statement.where(
             mapper.class_.user_id == tenant
         )
