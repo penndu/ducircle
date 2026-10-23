@@ -82,12 +82,17 @@ jobs:
             type=sha,format=short
             type=ref,event=branch
 
+      # 只构建服务器实际需要的架构（amd64）。
+      # 双架构构建要装 QEMU 模拟，编译 asyncmy 的 C 扩展时
+      # 极慢且容易超时——上一版就是这么失败的。
+      # 确实需要 arm64 时把下面改成 linux/amd64,linux/arm64，
+      # 并在 job 里加上 setup-qemu-buildx-action。
       - name: 构建并推送
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

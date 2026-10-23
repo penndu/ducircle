@@ -174,6 +174,12 @@ Actions 会失败并把服务器上的日志带回来。常见原因：
 
 ---
 
+## 为什么构建必须在 CI 上
+
+服务器**连不上 Debian软件源**（`Unable to connect to deb.debian.org`），
+实测在服务器上 `docker build` 会在装 gcc/curl 那步直接失败。
+加上内存只有 1.7G，构建放在 CI 上是唯一可行的方案。
+
 ## 镜像标签
 
 | 标签 | 用途 |
@@ -202,6 +208,10 @@ docker compose -f deploy/docker-compose.yml up -d
    （`.scalar_one()` 会作用在协程上，报错信息完全指不到真因）
 2. **MySQL 方言兼容性检查** —— 索引长度、外键、租户表索引覆盖
 3. **单元测试** —— 277 个用例
-4. **双架构构建** —— linux/amd64 + linux/arm64，换服务器不用改 CI
+4. **构建镜像** —— 目前只构建 linux/amd64（服务器是 x86）。
+
+   双架构要装 QEMU 模拟，编译 asyncmy 的 C 扩展时极慢且容易超时，
+   实际跑过一次失败了。换 arm64 服务器时改 workflow 里的
+   `platforms: linux/amd64,linux/arm64` 并加 setup-qemu-buildx-action。
 
 测试不过，镜像不推，服务器不更新。
