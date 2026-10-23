@@ -74,13 +74,14 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(TenantContextMiddleware)
 
 # ---- 路由 ----
-from app.api import admin, ai, auth, export, users, web_pages  # noqa: E402
+from app.api import admin, ai, auth, export, opml, users, web_pages  # noqa: E402
 from app.api import posts, sites  # noqa: E402
 
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(ai.router)
 app.include_router(export.router)
+app.include_router(opml.router)
 app.include_router(web_pages.router)
 app.include_router(admin.router)
 app.include_router(sites.router)

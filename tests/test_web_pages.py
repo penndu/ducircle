@@ -230,3 +230,115 @@ class TestPageDataIsolation:
         assert "友链总数" in alice_html and "友链总数" in bob_html
         # Bob 的页面应该显示 0 个友链，不受 Alice 影响
         assert "还没有添加友链" in bob_html
+
+class TestOpmlEndpoints:
+    """OPML 导入的端到端验证。"""
+
+    OPML_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>我的订阅</title></head>
+  <body>
+    <outline text="技术">
+      <outline type="rss" text="站点甲" htmlUrl="https://jia.example.com/"
+               xmlUrl="https://jia.example.com/atom.xml"/>
+      <outline type="rss" text="站点乙" htmlUrl="https://yi.example.com/"
+               xmlUrl="https://yi.example.com/feed.xml"/>
+    </outline>
+  </body>
+</opml>""".encode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_sample_downloadable(self, client_with_app):
+        client, _ = client_with_app
+        r = await client.get("/api/opml/sample")
+        assert r.status_code == 200
+        assert "<opml" in r.text
+
+    @pytest.mark.asyncio
+    async def test_preview_then_import(self, client_with_app):
+        client, _ = client_with_app
+        await register(client, "opmler")
+
+        # 预览不写库
+        r = await client.post(
+            "/api/opml/preview",
+            files={"file": ("subs.opml", self.OPML_SAMPLE, "text/x-opml")},
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["will_create"] == 2
+        assert data["title"] == "我的订阅"
+        assert (await client.get("/api/sites")).json() == [], "预览不该写入"
+
+        # 确认导入
+        r = await client.post(
+            "/api/opml/import",
+            files={"file": ("subs.opml", self.OPML_SAMPLE, "text/x-opml")},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["created"] == 2
+
+        sites = (await client.get("/api/sites")).json()
+        assert len(sites) == 2
+        assert all(s["source"] == "opml" for s in sites)
+
+    @pytest.mark.asyncio
+    async def test_rejects_wrong_extension(self, client_with_app):
+        client, _ = client_with_app
+        await register(client, "opmler")
+
+        r = await client.post(
+            "/api/opml/import",
+            files={"file": ("data.txt", b"not opml", "text/plain")},
+        )
+        assert r.status_code == 400
+        assert "opml" in r.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_content(self, client_with_app):
+        client, _ = client_with_app
+        await register(client, "opmler")
+
+        r = await client.post(
+            "/api/opml/import",
+            files={"file": ("bad.opml", b"<html>not opml</html>", "text/x-opml")},
+        )
+        assert r.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_requires_login(self, client_with_app):
+        client, _ = client_with_app
+        r = await client.post(
+            "/api/opml/preview",
+            files={"file": ("subs.opml", self.OPML_SAMPLE, "text/x-opml")},
+        )
+        assert r.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_import_isolated_between_users(self, client_with_app):
+        """Alice 导入过的，Bob 导入同一份文件仍应成功。"""
+        client, _ = client_with_app
+
+        await register(client, "alice")
+        await client.post(
+            "/api/opml/import",
+            files={"file": ("subs.opml", self.OPML_SAMPLE, "text/x-opml")},
+        )
+        assert len((await client.get("/api/sites")).json()) == 2
+
+        await client.post("/web/logout")
+        await register(client, "bob")
+        r = await client.post(
+            "/api/opml/import",
+            files={"file": ("subs.opml", self.OPML_SAMPLE, "text/x-opml")},
+        )
+        assert r.json()["created"] == 2, "Bob 不该被 Alice 的数据挡住"
+
+    @pytest.mark.asyncio
+    async def test_sites_page_has_import_button(self, client_with_app):
+        """后台页面要有 OPML 导入入口。"""
+        client, _ = client_with_app
+        await register(client, "opmler")
+        r = await client.get("/web/sites")
+        assert "导入 OPML" in r.text
+        assert "drop-zone" in r.text

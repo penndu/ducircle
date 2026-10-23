@@ -97,8 +97,13 @@
 <div class="bg-white rounded-lg border border-gray-200 p-10 text-center">
   <p class="text-gray-500 mb-1">{% if search %}没有匹配的友链{% else %}还没有添加友链{% endif %}</p>
   <p class="text-sm text-gray-400 mb-6">{% if search %}试试换个关键词{% else %}点击右上角「添加友链」，或用友链页地址批量导入{% endif %}</p>
-  <button onclick="openAdd()"
-          class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加友链</button>
+  <div class="flex flex-wrap gap-2 justify-center">
+    <button onclick="openAdd()"
+            class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加友链</button>
+    <button onclick="openImport()"
+            class="px-4 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">导入 OPML 订阅列表</button>
+  </div>
+  <p class="text-xs text-gray-400 mt-4">从 FreshRSS / TinyRSS / Feedly 等阅读器导出即可</p>
 </div>
 {% endif %}
 
@@ -132,6 +137,66 @@
                 class="px-4 py-2.5 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
       </div>
     </form>
+  </div>
+</div>
+
+{# ---- OPML 导入弹窗 ---- #}
+<div id="import-modal" class="hidden fixed inset-0 z-30 bg-black/40 grid place-items-center p-4">
+  <div class="bg-white rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-medium">导入 OPML 订阅列表</h2>
+      <button onclick="closeModal('import-modal')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+
+    <div class="p-5">
+      <div id="import-step-1">
+        <p class="text-sm text-gray-600 mb-4 leading-relaxed">
+          在你的订阅器里导出 OPML 文件，然后上传到这里。
+          嵌套的分类会被自动识别并记录到备注里。
+        </p>
+
+        <label class="block border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-gray-400 transition"
+               id="drop-zone">
+          <input type="file" accept=".opml,.xml" class="hidden" id="opml-file" onchange="previewFile()">
+          <p class="text-sm text-gray-600 mb-1">点击选择或拖拽文件到此处</p>
+          <p class="text-xs text-gray-400">支持 .opml / .xml，最大 10MB</p>
+        </label>
+
+        <div class="mt-4">
+          <label class="flex items-start gap-2 text-sm text-gray-600">
+            <input type="checkbox" id="include-inferred" checked
+                   class="w-4 h-4 mt-0.5 rounded border-gray-300">
+            <span>
+              导入「只有 feed 地址」的条目
+              <span class="block text-xs text-gray-400 mt-0.5">
+                这些条目的站点地址是从 feed 链接推断的，可能不准，导入后请核对
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div class="mt-5 flex gap-2">
+          <a href="/api/opml/sample" download
+             class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">下载示例</a>
+          <button onclick="closeModal('import-modal')"
+                  class="flex-1 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
+        </div>
+      </div>
+
+      {# 预览结果 #}
+      <div id="import-step-2" class="hidden">
+        <div id="preview-content"></div>
+        <div class="mt-5 flex gap-2">
+          <button onclick="doImport()"
+                  id="import-confirm-btn"
+                  class="flex-1 py-2.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
+            确认导入
+          </button>
+          <button onclick="backToStep1()"
+                  class="px-4 py-2.5 rounded border border-gray-300 text-sm hover:bg-gray-50">重新选择</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -242,6 +307,157 @@ async function removeSite(id, name) {
     showToast(`已删除，同时清理 ${data.deleted_posts} 篇文章`);
     setTimeout(() => location.reload(), 1200);
   } catch (e) { showToast(e.message, false); }
+}
+
+let importFileData = null;
+
+function openImport() {
+  importFileData = null;
+  document.getElementById('import-step-1').classList.remove('hidden');
+  document.getElementById('import-step-2').classList.add('hidden');
+  document.getElementById('opml-file').value = '';
+  openModal('import-modal');
+}
+
+// 拖拽支持
+document.addEventListener('DOMContentLoaded', () => {
+  const zone = document.getElementById('drop-zone');
+  if (!zone) return;
+  ['dragenter', 'dragover'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      zone.classList.add('border-gray-600', 'bg-gray-50');
+    })
+  );
+  ['dragleave', 'drop'].forEach(evt =>
+    zone.addEventListener(evt, e => {
+      e.preventDefault();
+      zone.classList.remove('border-gray-600', 'bg-gray-50');
+    })
+  );
+  zone.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+});
+
+async function previewFile() {
+  const input = document.getElementById('opml-file');
+  if (input.files[0]) handleFile(input.files[0]);
+}
+
+async function handleFile(file) {
+  if (!file.name.match(/\.(opml|xml)$/i)) {
+    return showToast('请选择 .opml 或 .xml 文件', false);
+  }
+  importFileData = file;
+  showToast('正在解析…');
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const preview = await fetch('/api/opml/preview', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    const data = await preview.json();
+    if (!preview.ok) throw new Error(data.detail || '解析失败');
+    renderPreview(data);
+  } catch (e) {
+    showToast(e.message, false);
+  }
+}
+
+function renderPreview(data) {
+  const box = document.getElementById('preview-content');
+  const willCreate = data.will_create || 0;
+
+  let html = `
+    <div class="mb-4">
+      <p class="text-sm text-gray-600 mb-1">
+        ${data.title ? `<span class="font-medium">${escapeHtml(data.title)}</span> · ` : ''}
+        解析到 ${data.parsed_entries} 个订阅
+      </p>
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mt-2">
+        <span class="text-gray-900">新增 <strong>${willCreate}</strong></span>
+        <span>已存在 <strong>${data.will_skip_existing}</strong></span>
+        ${data.duplicates_in_file ? `<span>文件内重复 <strong>${data.duplicates_in_file}</strong></span>` : ''}
+        ${data.invalid_count ? `<span class="text-red-600">无效 <strong>${data.invalid_count}</strong></span>` : ''}
+      </div>
+    </div>`;
+
+  if (willCreate === 0) {
+    html += `<div class="px-4 py-6 rounded bg-gray-50 text-center">
+      <p class="text-sm text-gray-600">没有需要新增的站点</p>
+      <p class="text-xs text-gray-400 mt-1">这些订阅都已经添加过了</p>
+    </div>`;
+    document.getElementById('import-confirm-btn').classList.add('hidden');
+  } else {
+    document.getElementById('import-confirm-btn').classList.remove('hidden');
+    html += `<div class="max-h-52 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100">
+      ${data.preview.map(e => `
+        <div class="px-3 py-2">
+          <p class="text-sm text-gray-900 truncate">${escapeHtml(e.name)}
+            ${e.inferred_site ? '<span class="text-xs text-amber-600">待核对</span>' : ''}
+          </p>
+          <p class="text-xs text-gray-400 truncate">${escapeHtml(e.site_url)}</p>
+          ${e.category ? `<p class="text-xs text-gray-400">分类：${escapeHtml(e.category)}</p>` : ''}
+        </div>`).join('')}
+    </div>`;
+    if (willCreate > data.preview.length) {
+      html += `<p class="text-xs text-gray-400 mt-2">仅显示前 ${data.preview.length} 个</p>`;
+    }
+  }
+
+  box.innerHTML = html;
+  document.getElementById('import-step-1').classList.add('hidden');
+  document.getElementById('import-step-2').classList.remove('hidden');
+}
+
+async function doImport() {
+  if (!importFileData) return;
+  const btn = document.getElementById('import-confirm-btn');
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+
+  const formData = new FormData();
+  formData.append('file', importFileData);
+  formData.append('include_inferred',
+    document.getElementById('include-inferred').checked ? 'true' : 'false');
+
+  try {
+    const resp = await fetch('/api/opml/import', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || '导入失败');
+
+    let msg = `成功导入 ${data.created} 个友链`;
+    if (data.skipped_existing) msg += `，跳过 ${data.skipped_existing} 个已存在`;
+    if (data.skipped_blacklist) msg += `，${data.skipped_blacklist} 个在黑名单`;
+    showToast(msg);
+    setTimeout(() => location.reload(), 2000);
+  } catch (e) {
+    showToast(e.message, false);
+    btn.disabled = false;
+    btn.textContent = '确认导入';
+  }
+}
+
+function backToStep1() {
+  document.getElementById('import-step-1').classList.remove('hidden');
+  document.getElementById('import-step-2').classList.add('hidden');
+}
+
+// OPML 是用户可控的第三方内容，必须转义后再插入 DOM
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : s;
+  return div.innerHTML;
 }
 
 async function openRules(id, name) {
