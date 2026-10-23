@@ -69,6 +69,37 @@
 </div>
 {% endif %}
 
+{# ---- AI 摘要 ---- #}
+{% if ai.enabled %}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-medium">AI 摘要</h2>
+    {% if ai.has_own_key %}
+    <span class="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">使用你自己的 Key</span>
+    {% elif ai.remaining is not none %}
+    <span class="text-xs text-gray-400">今日剩余 {{ ai.remaining }}/{{ ai.daily_limit }} 篇</span>
+    {% endif %}
+  </div>
+
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    为文章生成摘要和推荐分，帮你判断哪些值得点开。
+    {% if stats.posts.summarized > 0 %}
+      已完成 {{ stats.posts.summarized }}/{{ stats.posts.total }} 篇。
+    {% endif %}
+  </p>
+
+  {% if stats.posts.total - stats.posts.summarized > 0 %}
+  <div class="flex gap-2">
+    <button onclick="batchSummary()" class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
+      生成剩余文章的摘要
+    </button>
+  </div>
+  {% elif stats.posts.total > 0 %}
+  <p class="text-sm text-gray-500">全部文章都已有摘要。</p>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ---- API Key ---- #}
 <div class="bg-white rounded-lg border border-gray-200 p-5 mb-6">
   <div class="flex items-center justify-between mb-3">
@@ -117,6 +148,15 @@
 {% endblock %}
 
 {% block page_scripts %}
+async function batchSummary() {
+  if (!confirm('将为所有未摘要的文章生成摘要。\n这会消耗 AI 额度，通常需要几分钟。')) return;
+  try {
+    const data = await api('/api/ai/batch?limit=50', { method: 'POST' });
+    showToast(data.message || '已开始');
+    setTimeout(() => location.reload(), 3000);
+  } catch (e) { showToast(e.message, false); }
+}
+
 async function triggerAll() {
   if (!confirm('确定立即抓取全部友链吗？\n抓取会在后台进行，可能需要几分钟。')) return;
   try {

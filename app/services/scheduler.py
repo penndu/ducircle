@@ -86,6 +86,17 @@ async def start_scheduler() -> AsyncIOScheduler:
         )
 
         scheduler.add_job(
+            lambda: _run_locked("ai-summary", run_ai_summaries),
+            _cron(settings.ai_cron),
+            id="ai_summary",
+            name="AI 摘要生成",
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+            max_instances=1,
+        )
+
+        scheduler.add_job(
             lambda: _run_locked("stats", run_stats_snapshot),
             _cron(settings.stats_cron),
             id="stats",
@@ -131,6 +142,13 @@ async def run_cleanup() -> dict:
     from app.services.crawl_service import cleanup_expired
 
     return await cleanup_expired()
+
+
+async def run_ai_summaries() -> dict:
+    """为所有用户的待处理文章生成摘要。"""
+    from app.services.ai_summary import summarize_all_pending
+
+    return await summarize_all_pending()
 
 
 async def run_stats_snapshot() -> dict:

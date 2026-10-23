@@ -9,4 +9,4 @@ app.web 需要 app.api.deps，而 app.api.web_pages 又需要 app.web。
 各路由在 app/main.py 里显式注册，导入顺序可控。
 """
 
-__all__ = ["admin", "auth", "posts", "sites", "users", "web_pages"]
+__all__ = ["admin", "ai", "auth", "export", "posts", "sites", "users", "web_pages"]

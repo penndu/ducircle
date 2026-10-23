@@ -36,6 +36,22 @@ router = APIRouter(prefix="/web", tags=["后台页面"])
 DbSessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 
+async def _ai_state(user: User, db) -> dict:
+    """仪表盘展示用的 AI 状态。"""
+    from app.core.config import get_settings
+    from app.services.ai_summary import check_quota
+
+    settings = get_settings()
+    allowed, used, limit = await check_quota(user, db)
+    return {
+        "enabled": settings.ai_enabled and user.ai_enabled,
+        "has_own_key": user.has_own_ai_key,
+        "daily_limit": limit,
+        "used": used,
+        "remaining": None if user.has_own_ai_key else max(0, limit - used),
+    }
+
+
 async def _page_context(request: Request, user: User, counts: dict, page: str) -> dict:
     """所有页面共用的上下文。
 
@@ -89,12 +105,14 @@ async def dashboard(
         ).scalar_one_or_none()
 
         counts = await nav_counts(db)
+        ai_state = await _ai_state(user, db)
 
     ctx = await _page_context(request, user, counts, "dashboard")
     ctx.update(
         stats=stats,
         strategy_rows=strategy_rows,
         last_crawled=last_site.last_crawled_at if last_site else None,
+        ai=ai_state,
     )
     return render(request, "dashboard.html", ctx)
 

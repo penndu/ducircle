@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     cleanup_cron: str = "0 3 * * *"
     # 统计快照任务，每天 4 点
     stats_cron: str = "0 4 * * *"
+    # AI 摘要任务，每小时一次。
+    # 放小时级而不是每天——文章流是滚动的，新文章要尽快有摘要，
+    # 否则用户点开看到的还是「待摘要」。
+    ai_cron: str = "0 * * * *"
     scheduler_enabled: bool = True
 
     # ---- 缓存 ----
