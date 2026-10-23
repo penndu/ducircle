@@ -1,0 +1,36 @@
+#!/bin/sh
+# 提交后自动推送到远程。
+#
+# 用 post-commit 而不是 pre-push：pre-push 在 push 被拒时已经
+# 提交了本地，推送失败会造成两边不一致，很难察觉。
+# post-commit 推送失败同样不阻塞提交，但会在输出里明确提示。
+#
+# 关闭方式：设置 DUCIRCLE_NO_PUSH=1
+
+if [ -n "$DUCIRCLE_NO_PUSH" ]; then
+    exit 0
+fi
+
+remote=$(git config --get remote.origin.url 2>/dev/null)
+[ -z "$remote" ] && exit 0
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ "$branch" = "HEAD" ] && exit 0
+
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null)
+if [ -z "$upstream" ]; then
+    # 首次推送还没有上游
+    git push -u origin "$branch" >/dev/null 2>&1 && \
+        echo "已推送并设置上游：origin/$branch"
+    exit 0
+fi
+
+if git push origin "$branch" >/dev/null 2>&1; then
+    :
+else
+    echo ""
+    echo "⚠️  自动推送失败（本地提交已保留）"
+    echo "   原因通常是网络问题或远端有更新。"
+    echo "   解决后执行：git push origin $branch"
+    echo ""
+fi
