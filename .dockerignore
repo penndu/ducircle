@@ -1,0 +1,49 @@
+# 构建上下文忽略清单。
+#
+# 没有这个文件时，docker 会把整个目录传给构建守护进程——
+# 本地 .venv 有 188MB（还含为 macOS 编译的二进制），
+# 在 CI 上传这段上下文会超时，而且那些二进制对 Linux 镜像毫无用处。
+# 实测：加上本文件后构建上下文从 189MB 降到约 1MB。
+
+# Python 虚拟环境与缓存
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 版本控制与 IDE
+.git/
+.gitignore
+.github/
+.idea/
+.vscode/
+*.swp
+
+# 运行时产物
+logs/
+*.log
+data.db
+*.sqlite*
+
+# 本地配置（含密码，绝不能进构建上下文）
+.env
+.env.*
+!.env.example
+
+# 文档与脚本：镜像里不需要
+docs/
+scripts/
+tests/
+README.md
+
+# 静态资源由 Dockerfile 单独 COPY web/，不需要其他杂项
+*.md
+.DS_Store
+deploy/*.md

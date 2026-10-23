@@ -12,6 +12,15 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /build
 
+# 换源。基础镜像默认用 deb.debian.org，实测在国内云主机上
+# 容器内解析该域名会拿到 IPv6 地址，但没有 IPv6 路由，
+# apt 会卡住直到超时。换成腾讯云镜像（同机房，稳定且快）。
+RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/debian|g; \
+            s|http://deb.debian.org/debian-security|https://mirrors.cloud.tencent.com/debian-security|g; \
+            s|http://security.debian.org/debian-security|https://mirrors.cloud.tencent.com/debian-security|g' \
+        /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/debian|g' /etc/apt/sources.list
+
 # gcc 编译 asyncmy 的 C 扩展；不装 mysql 客户端头文件，
 # 因为 asyncmy 是纯 C 实现，不需要 MySQL 开发包。
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +44,13 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     TZ=Asia/Shanghai
 
-# curl 供 HEALTHCHECK 用
+# curl 供 HEALTHCHECK 用。源替换同 builder 阶段，理由见上。
+RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/debian|g; \
+            s|http://deb.debian.org/debian-security|https://mirrors.cloud.tencent.com/debian-security|g; \
+            s|http://security.debian.org/debian-security|https://mirrors.cloud.tencent.com/debian-security|g' \
+        /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/debian|g' /etc/apt/sources.list
+
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
