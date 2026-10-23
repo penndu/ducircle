@@ -11,7 +11,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "sqlalchemy[asyncio]>=2.0.36",
+    # asyncmy 用于应用运行时（异步驱动）
     "asyncmy>=0.2.9",
+    # pymysql 用于 Alembic 迁移（同步驱动更稳，DDL 不需要异步）
+    # 漏了这个容器启动时 alembic upgrade 会报 No module named pymysql
+    "pymysql>=1.1",
     "alembic>=1.14",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",

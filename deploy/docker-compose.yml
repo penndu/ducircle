@@ -1,33 +1,31 @@
 # 1Panel 环境下的编排。
 #
-# 与本地开发版的区别：MySQL 与 Redis 由 1Panel 托管，是外部服务，
-# 这里不再起容器——重复启动会端口冲突，也会出现两份数据。
+# 镜像由 GitHub Actions 构建并推到 ghcr.io，服务器只负责拉取——
+# 这台机器只有 1.7G 内存，在上面跑 docker build 容易 OOM。
 #
-# 部署前必须确认：
-#   1. 应用容器与 1Panel 的 MySQL/Redis 在同一个 Docker 网络。
-#      1Panel 默认给每个容器建独立网络，需要手动接入，否则连不上。
-#      在 1Panel 的「容器」页面给本应用点「网络」加入对应网络即可。
-#   2. ../.env 已填好密码。
+# 部署前确认：
+#   1. .env 已填好密码（不要提交到 git）
+#   2. 容器已接入 1Panel 的 MySQL/Redis 所在网络
+#      （1Panel 默认给每个容器建独立网络，需要手动加入）
+#   3. ghcr.io/penndu/ducircle 已设为 public，否则 pull 会 403
 services:
   app:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: ducircle:latest
+    image: ghcr.io/penndu/ducircle:latest
     container_name: ducircle
     restart: unless-stopped
     env_file: ../.env
     ports:
-      # 反代上游端口。1Panel 反向代理指向 http://127.0.0.1:9527
+      # 反代上游。1Panel 反向代理指向 http://127.0.0.1:9527
       - "127.0.0.1:9527:8000"
     volumes:
       - logs:/app/logs
-    # 抓取并发高，限制 CPU 避免吃满整机
+    # 抓取并发高，限制 CPU 避免吃满整机。
+    # 内存留 700M——应用实际用不到 400M，剩下的给 MySQL。
     deploy:
       resources:
         limits:
-          cpus: "1.5"
-          memory: 1G
+          cpus: "1.0"
+          memory: 700M
     logging:
       driver: json-file
       options:
