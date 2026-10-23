@@ -51,7 +51,9 @@
               class="w-full px-3 py-2 rounded border border-gray-300 bg-white">
         <option value="">使用平台默认</option>
         {% for p in providers %}
-        <option value="{{ p }}" {% if current_user.ai_provider == p %}selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}" {% if current_user.ai_provider == p %}selected{% endif %}>
+          {{ provider_names.get(p, p) }}
+        </option>
         {% endfor %}
       </select>
     </div>

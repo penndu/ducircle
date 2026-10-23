@@ -56,6 +56,24 @@ PROVIDERS: dict[str, ProviderConfig] = {
         base_url="https://api.moonshot.cn/v1",
         default_model="moonshot-v1-8k",
     ),
+    # 智谱 GLM，OpenAI 兼容
+    "bigmodel": ProviderConfig(
+        name="bigmodel",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        default_model="glm-4-flash",
+    ),
+    # MiniMax 有两个域名：国内 api.minimaxi.com，国际 api.minimax.io。
+    # 两个都加上——国内用户用国内版更稳，海外用户用国际版。
+    "minimax": ProviderConfig(
+        name="minimax",
+        base_url="https://api.minimax.io/v1",
+        default_model="MiniMax-M3",
+    ),
+    "minimax_cn": ProviderConfig(
+        name="minimax_cn",
+        base_url="https://api.minimaxi.com/v1",
+        default_model="MiniMax-M3",
+    ),
     "gemini": ProviderConfig(
         name="gemini",
         base_url="https://generativelanguage.googleapis.com/v1beta",
@@ -69,6 +87,23 @@ PROVIDERS: dict[str, ProviderConfig] = {
         default_model="qwen2.5:7b",
     ),
 }
+
+
+# 服务商的显示名。用户看到的是这些，不是内部标识。
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "gemini": "Google Gemini",
+    "siliconflow": "SiliconFlow 硅基流动",
+    "bigmodel": "智谱 BigModel",
+    "deepseek": "DeepSeek 深度求索",
+    "moonshot": "Moonshot 月之暗面",
+    "minimax": "MiniMax（国际版）",
+    "minimax_cn": "MiniMax（国内版）",
+    "ollama": "Ollama 本地模型",
+}
+
+
+def provider_display_name(provider: str) -> str:
+    return PROVIDER_DISPLAY_NAMES.get(provider, provider)
 
 
 @dataclass

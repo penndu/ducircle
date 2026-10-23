@@ -235,9 +235,12 @@ async def settings_page(
     from app.core.config import get_settings
 
     ctx = await _page_context(request, user, await nav_counts(db), "settings")
+    from app.services.llm import PROVIDER_DISPLAY_NAMES
+
     ctx.update(
         quota=user.quota_limit(get_settings().ai_daily_quota),
-        providers=["gemini", "siliconflow", "bigmodel"],
+        providers=list(PROVIDER_DISPLAY_NAMES),
+        provider_names=PROVIDER_DISPLAY_NAMES,
     )
     return render(request, "settings.html", ctx)
 
