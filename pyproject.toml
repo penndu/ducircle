@@ -40,6 +40,12 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.8",
     "mypy>=1.13",
+    # 测试用 SQLite 内存库跑，不需要真实 MySQL。
+    # 漏了这个会让 CI 里 65 个测试用例全部 error。
+    "aiosqlite>=0.20",
+    # 迁移脚本用的同步驱动，生成迁移时会用到
+    "pymysql>=1.1",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
