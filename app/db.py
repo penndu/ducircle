@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -35,6 +36,9 @@ def get_engine():
             max_overflow=20,
             pool_timeout=30,
         )
+        # 记录方言，供 app/core/sql_compat.py 判断该用哪种 SQL 语法。
+        # MySQL 不支持 NULLS LAST，SQLite 支持——不记录的话只能靠猜。
+        os.environ["DUCIRCLE_DB_DIALECT"] = _engine.dialect.name
     return _engine
 
 

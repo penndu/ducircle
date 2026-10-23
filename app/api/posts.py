@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserKey, CurrentUserSession, DbSession
 from app.models import Post, Site
+from app.core.sql_compat import desc_nulls_last
 
 web_router = APIRouter(prefix="/api/posts", tags=["文章管理"])
 v1_router = APIRouter(prefix="/v1", tags=["只读 API"])
@@ -85,7 +86,7 @@ async def list_posts(
         stmt = stmt.where(Post.summary.is_(None))
 
     stmt = (
-        stmt.order_by(Post.created.desc().nullslast(), Post.id.desc())
+        stmt.order_by(desc_nulls_last(Post.created), Post.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -149,12 +150,12 @@ async def v1_all(
 
     if rule == "score":
         stmt = stmt.order_by(
-            Post.ai_score.desc().nullslast(), Post.created.desc().nullslast()
+            desc_nulls_last(Post.ai_score), desc_nulls_last(Post.created)
         )
     elif rule == "updated":
-        stmt = stmt.order_by(Post.updated.desc().nullslast(), Post.id.desc())
+        stmt = stmt.order_by(desc_nulls_last(Post.updated), Post.id.desc())
     else:
-        stmt = stmt.order_by(Post.created.desc().nullslast(), Post.id.desc())
+        stmt = stmt.order_by(desc_nulls_last(Post.created), Post.id.desc())
 
     total = (
         await db.execute(
@@ -206,7 +207,7 @@ async def v1_post(
             select(Post, Site.name, Site.avatar)
             .join(Site, Post.site_id == Site.id)
             .where(Post.site_id == site_id, Post.deleted_at.is_(None))
-            .order_by(Post.created.desc().nullslast())
+            .order_by(desc_nulls_last(Post.created))
             .limit(num)
         )
     ).all()

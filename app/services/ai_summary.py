@@ -26,6 +26,7 @@ from app.services.extractor import (
     needs_summary,
 )
 from app.services.llm import LLMClient, LLMError, parse_summary_response
+from app.core.sql_compat import desc_nulls_last
 
 logger = logging.getLogger("ducircle.summary")
 
@@ -238,7 +239,7 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
                     Post.summary_edited.is_(False),
                     Post.deleted_at.is_(None),
                 )
-                .order_by(Post.created.desc().nullslast())
+                .order_by(desc_nulls_last(Post.created))
                 .limit(limit)
             )
         ).scalars().all()

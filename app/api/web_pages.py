@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CrawlLog, Post, Site, User
 from app.core.zh_sort import to_pinyin
 from app.web import nav_counts, render, require_page_user
+from app.core.sql_compat import desc_nulls_last
 
 router = APIRouter(prefix="/web", tags=["后台页面"])
 
@@ -179,7 +180,7 @@ async def posts_page(
         select(Post, Site.name, Site.url, Site.avatar)
         .join(Site, Post.site_id == Site.id)
         .where(Post.deleted_at.is_(None))
-        .order_by(Post.created.desc().nullslast(), Post.id.desc())
+        .order_by(desc_nulls_last(Post.created), Post.id.desc())
         .offset(offset)
         .limit(limit + 1)
     )

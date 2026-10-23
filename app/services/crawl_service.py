@@ -23,6 +23,7 @@ from app.db import session_scope
 from app.models import CrawlLog, Post, Site, User
 from app.parser.base import CrawlResult
 from app.services.crawler import Crawler, save_crawl_result, should_crawl
+from app.core.sql_compat import asc_nulls_first
 
 logger = logging.getLogger("ducircle.crawl")
 
@@ -79,7 +80,7 @@ async def _crawl_user_sites(db_factory, user_id: int) -> dict:
                 Site.active.is_(True),
                 (Site.last_crawled_at.is_(None)) | (Site.last_crawled_at < cutoff),
             )
-            .order_by(Site.last_crawled_at.asc().nullsfirst())
+            .order_by(Site.asc_nulls_first(last_crawled_at))
         )
         if settings.outdate_clean_days:
             # 彻底不活跃的站点先跳过，把资源留给还在更新的
