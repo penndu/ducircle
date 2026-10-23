@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.api.deps import CurrentUserSession, DbSession
@@ -50,6 +50,10 @@ class LinkPageOut(BaseModel):
     last_error: str | None = None
     active: bool = True
     created_at: datetime
+
+    # 从 ORM 对象取值——少了这行 model_validate 会报
+    # "Input should be a valid dictionary or instance of LinkPageOut"
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LinkPageScanResult(BaseModel):

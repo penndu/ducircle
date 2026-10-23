@@ -36,7 +36,7 @@
         <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 flex-wrap">
           <span>发现 {{ page.found_count }} 个好友</span>
           {% if page.last_checked_at %}
-          <span>上次检测 {{ page.last_checked_at | replace('T', ' ')[:16] }}</span>
+          <span>上次检测 {{ (page.last_checked_at | replace('T', ' '))[:16] }}</span>
           {% else %}
           <span>尚未检测</span>
           {% endif %}
