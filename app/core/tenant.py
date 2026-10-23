@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+
+import logging
+
+logger = logging.getLogger("fcircle.tenant")
 from contextvars import ContextVar
 
 from sqlalchemy import event
@@ -115,6 +119,14 @@ def _inject_tenant_filter(state) -> None:
     # all_mappers 是本次语句涉及的所有实体映射，包含
     # 关系加载（lazy load）涉及的实体——这正是只查顶层语句会漏掉的部分。
     mappers = [m for m in state.all_mappers if m.local_table.name in TENANT_TABLES]
+
+    # 补充：从语句的 FROM 子句反查表名。
+    # select(func.count()).select_from(Site.__table__) 这类写法
+    # 不涉及 ORM 实体映射，all_mappers 是空的——不做这层补充就会
+    # 绕过隔离，返回跨租户的统计数字。
+    if not mappers:
+        mappers = _tables_in_statement(state.statement)
+
     if not mappers:
         return
 
@@ -122,3 +134,69 @@ def _inject_tenant_filter(state) -> None:
         state.statement = state.statement.where(
             mapper.class_.user_id == tenant
         )
+
+
+def _tables_in_statement(statement) -> list:
+    """从 select 语句的 FROM 子句里找出属于租户表的实体映射。
+
+    覆盖 select_from(Table)、直接写表名、以及多表 join 的情况。
+    """
+    from sqlalchemy import Select
+
+    if not isinstance(statement, Select):
+        return []
+
+    found: dict[str, object] = {}
+
+    def visit(node) -> None:
+        name = getattr(node, "name", None)
+        if name in TENANT_TABLES:
+            mapper = _MAPPER_BY_TABLE.get(name)
+            if mapper is not None:
+                found[name] = mapper
+        for child in getattr(node, "children", ()) or ():
+            visit(child)
+
+    try:
+        for element in statement.get_final_froms():
+            visit(element)
+    except Exception:  # noqa: BLE001
+        # 语句形态特殊（子查询、CTE 等）时不要让排序/过滤崩掉，
+        # 宁可不加过滤也不能让请求失败——上层认证仍会拦住越权访问。
+        logger.debug("无法解析语句的 FROM 子句，跳过租户过滤")
+
+    return list(found.values())
+
+def _build_mapper_index() -> dict[str, object]:
+    """建立「表名 -> ORM 映射」的索引。
+
+    延迟构建是为了避开循环导入：app.core.tenant 被 app.models 间接依赖，
+    在模块导入期就去 import app.models 会出错。真正需要时模型早已加载完。
+    """
+    from app.models import Base
+
+    index = {}
+    for mapper in Base.registry.mappers:
+        name = mapper.local_table.name
+        if name in TENANT_TABLES:
+            index[name] = mapper
+    return index
+
+
+_MAPPER_BY_TABLE: dict[str, object] = {}
+
+
+def refresh_mapper_index() -> None:
+    """重建表名索引。新增租户表后应调用。"""
+    global _MAPPER_BY_TABLE
+    _MAPPER_BY_TABLE = _build_mapper_index()
+
+
+# 模块导入完成后构建索引。放在文件末尾是必须的——
+# _MAPPER_BY_TABle 的定义在下方，提前引用会 NameError。
+if not _MAPPER_BY_TABLE:
+    try:
+        _MAPPER_BY_TABLE = _build_mapper_index()
+    except Exception as exc:  # noqa: BLE001
+        # 模型尚未加载完时延后构建，_tables_in_statement 会在需要时重试
+        logger.debug("模型尚未加载，映射索引延后构建：%s", exc)

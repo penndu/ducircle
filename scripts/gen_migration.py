@@ -5,6 +5,7 @@
 本脚本用于生成初始迁移，之后的变更再走正常的 autogenerate 流程。
 """
 
+import ast
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def main() -> None:
 
             # 位置参数必须在 keyword 之前，ForeignKey 同理。
             for fk in col.foreign_keys:
-                target = fk.column.table.name
+                target = f"{fk.column.table.name}.{fk.column.name}"
                 ondelete = fk.ondelete or "NO ACTION"
                 parts.append(f"sa.ForeignKey({target!r}, ondelete={ondelete!r})")
 
@@ -53,14 +54,78 @@ def main() -> None:
             out.append(f"        sa.Column({', '.join(parts)}),")
 
         for idx in sorted(table.indexes, key=lambda i: i.name or ""):
-            cols = ", ".join(c.name for c in idx.columns)
+            # 注意：sa.Index 的列参数必须用 **varargs**，不能是列表也不能是
+            # 逗号连接的字符串——两者都会报 "String column name or column
+            # expression for DDL constraint expected"。
+            # 列表形式 ['a','b'] 只在 op.create_index() 里才成立。
+            cols = [c.name for c in idx.columns]
             unique = ", unique=True" if idx.unique else ""
-            out.append(f"        sa.Index({idx.name!r}, {cols!r}{unique}),")
+            col_args = ", ".join(repr(c) for c in cols)
+            out.append(f"        sa.Index({idx.name!r}, {col_args}{unique}),")
         out.append("    )")
         out.append("")
 
     print("\n".join(out))
     print(f"# 共 {len(Base.metadata.sorted_tables)} 张表")
+
+
+def self_check(body: str) -> list[str]:
+    """生成后自检——在真实数据库上跑之前就能抓到的问题。
+
+    这几个坑全部是在真实 MySQL 上验证迁移时才暴露的，
+    SQLite 上一个都发现不了（因为测试根本不走迁移脚本）：
+      1. sa.Index('name', 'a, b') —— 逗号字符串被当成单个列名
+      2. sa.Index('name', ['a','b']) —— 列表只支持 op.create_index
+      3. sa.ForeignKey('users') —— 缺列名，必须写 'users.id'
+    正确写法：sa.Index('name', 'a', 'b') / sa.ForeignKey('users.id')
+    """
+    problems = []
+    # 生成的是缩进后的函数体片段，不能直接 parse，要先包一层
+    try:
+        tree = ast.parse("def _f():\n" + body)
+    except SyntaxError as exc:
+        return [f"生成的代码语法错误（第 {exc.lineno} 行）：{exc.msg}"]
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+
+        args = node.args
+
+        if func.attr == "Index":
+            if len(args) < 2:
+                continue
+            col_arg = args[1]
+            # 错法一：列表 —— 只有 op.create_index() 才接受
+            if isinstance(col_arg, (ast.List, ast.Tuple)):
+                problems.append(
+                    f"第 {node.lineno} 行：sa.Index 的列参数用了列表，"
+                    f"sa.Index 只接受 varargs"
+                )
+            # 错法二：含逗号的字符串 —— 会被当成一个叫 "a, b" 的列
+            elif isinstance(col_arg, ast.Constant) and isinstance(col_arg.value, str):
+                if "," in col_arg.value:
+                    problems.append(
+                        f"第 {node.lineno} 行：sa.Index 的列参数是含逗号的字符串 "
+                        f"{col_arg.value!r}，应该用 varargs"
+                    )
+
+        elif func.attr == "ForeignKey":
+            # 必须写成 '表.列'，只写表名会报
+            # "table 'users' has no column named 'user_id'"
+            if args:
+                target = args[0]
+                if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                    if "." not in target.value:
+                        problems.append(
+                            f"第 {node.lineno} 行：ForeignKey({target.value!r}) "
+                            f"缺列名，应写成 '表.列' 形式"
+                        )
+
+    return problems
 
 
 def _render_type(col, dialect) -> str:
@@ -102,4 +167,19 @@ def _render_type(col, dialect) -> str:
 
 
 if __name__ == "__main__":
-    main()
+    import io
+    import contextlib
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        main()
+    body = buf.getvalue()
+
+    problems = self_check(body)
+    if problems:
+        print("自检发现问题：", file=sys.stderr)
+        for p in problems:
+            print(f"  {p}", file=sys.stderr)
+        sys.exit(1)
+
+    print(body)

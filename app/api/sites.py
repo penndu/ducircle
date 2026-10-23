@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUserSession, DbSession
+from app.core.zh_sort import to_pinyin
 from app.core.security import normalize_url, site_hash
 from app.models import Blacklist, Site, SiteRule, Tag
 
@@ -128,8 +129,19 @@ async def list_sites(
     if active is not None:
         stmt = stmt.where(Site.active.is_(active))
 
-    stmt = stmt.order_by(Site.error.desc(), Site.name).limit(limit).offset(offset)
-    sites = (await db.execute(stmt)).scalars().all()
+    # 失败的站点排前面（那是用户要处理的事），组内按拼音排
+    stmt = stmt.order_by(Site.error.desc())
+
+    # 中文按拼音排序。
+    # MySQL 的 utf8mb4_unicode_ci 按 Unicode 码点排，对中文用户是乱的
+    # （「张三」会排到「李四」后面）。改 collation 要动数据库结构，
+    # 代价太大；这里在应用层排——友链量在几百条量级，完全够用。
+    sites = sorted(
+        (await db.execute(stmt)).scalars().all(),
+        key=lambda s: (not s.error, to_pinyin(s.name)),
+    )
+    total = len(sites)
+    sites = sites[offset : offset + limit]
 
     counts = await _post_count_map(db, [s.id for s in sites])
     result = []
@@ -361,7 +373,9 @@ class TagOut(BaseModel):
 
 @router.get("/tags/all", response_model=list[TagOut], summary="标签列表")
 async def list_tags(user: CurrentUserSession, db: DbSession) -> list[TagOut]:
-    rows = (await db.execute(select(Tag).order_by(Tag.name))).scalars().all()
+    rows = (await db.execute(select(Tag))).scalars().all()
+    # 同样按拼音排，理由见 list_sites
+    rows = sorted(rows, key=lambda t: to_pinyin(t.name))
     return [TagOut.model_validate(t) for t in rows]
 
 

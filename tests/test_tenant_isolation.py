@@ -248,3 +248,66 @@ class TestTenantTableCoverage:
     def test_users_table_not_isolated(self):
         """users 表本身不带 user_id，不应被过滤——否则无法登录。"""
         assert "users" not in TENANT_TABLES
+
+class TestTableLevelIsolation:
+    """不经过 ORM 实体的查询也必须隔离。
+
+    这个缺口是在真实 MySQL 验证时发现的：钩子依赖 state.all_mappers，
+    而 select(func.count()).select_from(Site.__table__) 不涉及实体映射，
+    all_mappers 为空 → 隔离被绕过 → 统计数字跨租户泄露。
+    SQLite 测试当时没覆盖这种写法，所以一直没发现。
+    """
+
+    @pytest.mark.asyncio
+    async def test_count_with_select_from_isolated(self, session):
+        from sqlalchemy import func, select
+
+        from app.core.tenant import set_tenant
+
+        await _seed(session)
+
+        set_tenant(ALICE_ID)
+        total = (
+            await session.execute(select(func.count()).select_from(Site))
+        ).scalar_one()
+        assert total == 2, "select_from(Site) 也必须被隔离"
+        set_tenant(None)
+
+    @pytest.mark.asyncio
+    async def test_select_from_table_object_isolated(self, session):
+        """用 __table__ 的写法同样要生效——这才是真正绕过的那条路。"""
+        from sqlalchemy import func, select
+
+        from app.core.tenant import set_tenant
+
+        await _seed(session)
+
+        set_tenant(BOB_ID)
+        total = (
+            await session.execute(
+                select(func.count()).select_from(Site.__table__)
+            )
+        ).scalar_one()
+        assert total == 1, f"Bob 应只看到自己的 1 个，实际 {total}"
+        set_tenant(None)
+
+    @pytest.mark.asyncio
+    async def test_join_query_isolated(self, session):
+        """多表 join 时参与的租户表都要被过滤。"""
+        from sqlalchemy import select
+
+        from app.core.tenant import set_tenant
+
+        await _seed(session)
+
+        set_tenant(BOB_ID)
+        rows = (
+            await session.execute(
+                select(Post.title)
+                .select_from(Post.__table__.join(
+                    Site.__table__, Post.site_id == Site.id
+                ))
+            )
+        ).scalars().all()
+        assert rows == ["Bob文章"], f"join 查询泄露了：{rows}"
+        set_tenant(None)

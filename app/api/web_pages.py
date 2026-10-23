@@ -24,6 +24,7 @@ from app.core.session import SESSION_COOKIE, session_cookie_kwargs, write_sessio
 from app.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CrawlLog, Post, Site, User
+from app.core.zh_sort import to_pinyin
 from app.web import nav_counts, render, require_page_user
 
 router = APIRouter(prefix="/web", tags=["后台页面"])
@@ -132,9 +133,11 @@ async def sites_page(
         stmt = stmt.where(Site.error.is_(True))
     if search:
         stmt = stmt.where(or_(Site.name.contains(search), Site.url.contains(search)))
-    stmt = stmt.order_by(Site.error.desc(), Site.name)
+    stmt = stmt.order_by(Site.error.desc())
 
     rows = (await db.execute(stmt)).scalars().all()
+    # 应用层按拼音排，理由见 app/api/sites.py 的 list_sites
+    rows = sorted(rows, key=lambda x: (not x.error, to_pinyin(x.name)))
 
     # 附上每站文章数，避免 N+1 查询
     counts = {}
