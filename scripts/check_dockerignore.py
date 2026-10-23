@@ -96,6 +96,54 @@ def required_files() -> list[str]:
     return required
 
 
+def check_copy_coverage() -> list[str]:
+    """检查 pyproject 引用的文件是否被 Dockerfile COPY 进构建目录。
+
+    这是真正的坑：我一直只检查「有没有被 .dockerignore 排除」，
+    但 Dockerfile 里只 COPY 了 pyproject.toml 和 app/，
+    README.md 压根没进镜像——于是 hatchling 说文件不存在。
+
+    排除和没复制是两种不同的失败方式，必须都查。
+    """
+    problems: list[str] = []
+
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    readme = re.search(r'^readme\s*=\s*"([^"]+)"', pyproject, re.M)
+    if not readme:
+        return problems
+
+    filename = readme.group(1)
+
+    dockerfile = ROOT / "deploy" / "Dockerfile"
+    if not dockerfile.exists():
+        return [f"找不到 deploy/Dockerfile"]
+
+    # 收集 builder 阶段 COPY 的所有文件名
+    copied: set[str] = set()
+    for line in dockerfile.read_text().splitlines():
+        line = line.strip()
+        if not line.startswith("COPY") or "--from=" in line:
+            continue
+        parts = [x for x in line.split() if not x.startswith("--")]
+        for src in parts[1:-1]:
+            src = src.rstrip("/")
+            if src.startswith("./"):
+                src = src[2:]
+            copied.add(src)
+            # COPY a b 形式：把 a 也算进已复制
+            copied.add(Path(src).name)
+
+    if filename not in copied:
+        problems.append(
+            f"pyproject.toml 声明了 readme = \"{filename}\"，"
+            f"但 Dockerfile 没有 COPY 它。"
+            f" 构建时文件不存在，hatchling 会报 "
+            f"OSError: Readme file does not exist"
+        )
+
+    return problems
+
+
 def main() -> int:
     patterns = load_patterns()
     if not patterns:
@@ -129,7 +177,15 @@ def main() -> int:
         print("hatchling 构建时会校验存在性，缺了直接报错。")
         return 1
 
-    print("构建必需文件都没被排除。")
+    copy_problems = check_copy_coverage()
+    print()
+    if copy_problems:
+        print("❌ Dockerfile 的 COPY 有遗漏：")
+        for p in copy_problems:
+            print(f"  - {p}")
+        return 1
+
+    print("构建必需文件都在，且 Dockerfile 已 COPY 进来。")
     return 0
 
 

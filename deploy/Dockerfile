@@ -29,7 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 先只拷依赖声明，让 pip 层的缓存能命中——
 # 只改业务代码时不必重装依赖。
-COPY pyproject.toml ./
+#
+# README.md 必须一起拷：pyproject.toml 声明了 readme = "README.md"，
+# hatchling 构建时会校验该文件在构建目录中存在，缺了就报
+#   OSError: Readme file does not exist: README.md
+# 这个坑卡了 CI 五轮才定位到——报错被 BuildKit 吞成了
+# metadata-generation-failed，看不到真正原因。
+COPY pyproject.toml README.md ./
 COPY app ./app
 
 # 先装构建后端再用 --no-build-isolation安装本项目。
