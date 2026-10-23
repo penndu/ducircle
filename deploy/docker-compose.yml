@@ -1,16 +1,16 @@
 # 1Panel 环境下的编排。
 #
-# 镜像由 GitHub Actions 构建并推到 ghcr.io，服务器只负责拉取——
+# 镜像由 GitHub Actions 构建并推到 Docker Hub，服务器只负责拉取——
 # 这台机器只有 1.7G 内存，在上面跑 docker build 容易 OOM。
 #
 # 部署前确认：
 #   1. .env 已填好密码（不要提交到 git）
 #   2. 容器已接入 1Panel 的 MySQL/Redis 所在网络
 #      （1Panel 默认给每个容器建独立网络，需要手动加入）
-#   3. ghcr.io/penndu/ducircle 已设为 public，否则 pull 会 403
+#   3. Docker Hub 仓库已创建（公开拉取不需要额外设置）
 services:
   app:
-    image: ghcr.io/penndu/ducircle:latest
+    image: penndu/ducircle:latest
     container_name: ducircle
     restart: unless-stopped
     env_file: ../.env

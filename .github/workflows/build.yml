@@ -1,33 +1,40 @@
-# 构建镜像并推送到 GitHub Container Registry。
+# 构建镜像并推送到 Docker Hub，然后自动部署到服务器。
 #
-# 服务器内存只有 1.7G，在上面跑 docker build 很容易 OOM，
-# 把构建放到 GitHub Actions 上更稳妥——顺便还得到了
-# 「代码没通过构建就不会部署」的保证。
+# 服务器内存只有 1.7G，在上面跑 docker build 容易 OOM，
+# 所以构建放在这里，服务器只负责 pull。
 #
 # 需要的仓库 Secrets（Settings → Secrets and variables → Actions）：
-#   - 无。GITHUB_TOKEN 是 Actions 自动注入的，推 GHCR 够用。
+#   DOCKERHUB_USERNAME — Docker Hub 用户名
+#   DOCKERHUB_TOKEN    — Docker Hub 的 Access Token，不是登录密码
+#                        （Docker Hub → Account settings → Personal access tokens）
+#   SERVER_HOST        — www.dusays.com
+#   SERVER_USER        — root
+#   SERVER_SSH_KEY     — 部署用的私钥内容
 #
-# 首次使用前需要在 Packages 里把 GHCR 设为 public，
-# 否则服务器 pull 会 403。
+# 注意：私钥进 GitHub Secrets 有泄露风险。这台服务器上还有其它服务在跑，
+# 建议为部署专门生成一对密钥（见 docs/GitHub-Actions部署.md 第二节），
+# 用完后把该私钥从本机 ~/.ssh 移除。
 
-name: 构建与推送镜像
+name: 构建与部署
 
 on:
   push:
     branches: [main]
-  # 手动触发：改了 Dockerfile 或想重跑时用
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: 是否部署到服务器
+        type: boolean
+        default: true
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: penndu/ducircle
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: 检出代码
@@ -39,7 +46,6 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # 构建阶段的依赖装全——运行时镜像保持精简
       - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
@@ -52,29 +58,25 @@ jobs:
           echo "--- MySQL 方言兼容性 ---"
           python scripts/check_mysql_compat.py
 
+      # 测试不过就不构建、不推送、不部署。
+      # 这些测试抓到过3 个真 bug，其中一个是租户隔离的安全缺口。
       - name: 单元测试
-        # 全部测试都跑——它们不依赖 MySQL/Redis（用 SQLite + mock）。
-        # 需要真实数据库的验证是 scripts/verify_mysql.sh，
-        # 那是本地/服务器上手动跑的，不进 CI。
-        run: |
-          pytest tests/ -q -p no:warnings
+        run: pytest tests/ -q -p no:warnings
 
-      # Buildx 对 QEMU 友好，arm64 服务器也能跑同一份镜像
       - name: 设置 Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 登录 GHCR
+      - name: 登录 Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 生成镜像元数据
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
             type=sha,format=short
@@ -92,23 +94,58 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 构建成功才部署。避免把坏版本推上线。
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    # 只有推 main 才部署，手动触发到别的分支时不发
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    # push main 总是部署；手动触发按输入决定
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy != false)
     steps:
-      - name: 触发服务器拉取
+      - name: 拉取并重启
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          # set -e 让任何一步失败就停下——
+          # 健康检查不过时不报告成功，Actions 标记为失败。
           script: |
+            set -e
             cd /opt/1panel/www/sites/ducircle.dusays.com/index
+
+            echo "==> 拉取代码"
             git pull origin main
+
+            echo "==> 拉取镜像"
             docker compose -f deploy/docker-compose.yml pull
-            docker compose -f deploy/docker-compose.yml up -d
-            sleep 8
-            docker logs --tail 30 ducircle
+
+            echo "==> 重启服务"
+            docker compose -f deploy/docker-compose.yml up -d --remove-orphans
+
+            echo "==> 等待启动（容器内要先跑迁移）"
+            sleep 15
+
+            echo "==> 健康检查"
+            if ! curl -fsS http://127.0.0.1:9527/health; then
+              echo ""
+              echo "健康检查失败，容器日志："
+              docker logs --tail 50 ducircle 2>&1
+              exit 1
+            fi
+            echo ""
+            echo "部署成功"
+
+      - name: 部署后验证
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # 无论成功失败都跑，把现场信息带回来便于排查
+          script: |
+            echo "=== 容器状态 ==="
+            docker ps --filter name=ducircle --format "table {{.Names}}\t{{.Status}}"
+            echo "=== 启动日志 ==="
+            docker logs --tail 30 ducircle 2>&1 | grep -v "^$" | tail -20
