@@ -89,17 +89,43 @@ jobs:
       # 极慢且容易超时——上一版就是这么失败的。
       # 确实需要 arm64 时把下面改成 linux/amd64,linux/arm64，
       # 并在 job 里加上 setup-qemu-buildx-action。
+      # 不用 build-push-action，自己跑 buildx 并把完整日志落盘。
+      # action 的日志被 BuildKit 格式化后只剩 summary，
+      # 真正的原因（比如 pip 报错）会丢——排查时拿不到。
       - name: 构建并推送
-        uses: docker/build-push-action@v6
+        run: |
+          set -o pipefail
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -f deploy/Dockerfile \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --push \
+            --progress=plain . 2>&1 | tee build.log
+        continue-on-error: true
+
+      # 无论成败都上传日志，这样失败时能看到完整输出
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          context: .
-          file: deploy/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          name: build-log
+          path: build.log
+          retention-days: 7
+
+      # 上一步用了 continue-on-error，这里必须显式判定，
+      # 否则构建失败也会标记为成功并继续部署——那会部署出坏镜像。
+      - name: 校验构建结果
+        run: |
+          if grep -qE "^ERROR: failed to solve" build.log; then
+            echo "构建失败，镜像未推送"
+            grep -E "^#.*(ERROR|error:|Readme|No matching)" build.log | head -20 || true
+            exit 1
+          fi
+          echo "构建成功"
 
   deploy:
     needs: build
