@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>">
+  {# Tailwind 走 CDN：后台页面量小，构建链不值得引入。
+     公开服务上线后建议改成本地构建，避免依赖第三方可用性。 #}
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { -webkit-font-smoothing: antialiased; }
+    /* 表格在窄屏可横向滚动，不撑破布局 */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  </style>
+</head>
+<body class="{% block body_class %}bg-gray-50 text-gray-900{% endblock %}">
+
+{% block content %}{% endblock %}
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

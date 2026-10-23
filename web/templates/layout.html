@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{# 后台布局：左侧固定导航 + 右侧内容区。移动端用底部标签栏。 #}
+
+{% block body_class %}bg-gray-50 min-h-screen{% endblock %}
+
+{% block content %}
+<div class="min-h-screen md:flex">
+
+  {# ---- 侧边导航（桌面） ---- #}
+  <aside class="hidden md:flex md:flex-col md:w-56 md:shrink-0 bg-white border-r border-gray-200">
+    <div class="px-5 py-5 border-b border-gray-100">
+      <a href="/web" class="flex items-center gap-2">
+        <span class="w-7 h-7 rounded bg-gray-900 text-white grid place-items-center text-sm font-medium">友</span>
+        <span class="font-medium text-gray-900">{{ app_name }}</span>
+      </a>
+    </div>
+
+    <nav class="flex-1 px-3 py-4 space-y-0.5">
+      {% set links = [
+        ('/web', '概览', current_page == 'dashboard'),
+        ('/web/sites', '友链管理', current_page == 'sites'),
+        ('/web/posts', '文章流', current_page == 'posts'),
+        ('/web/failed', '抓取失败', current_page == 'failed'),
+        ('/web/settings', '设置', current_page == 'settings'),
+      ] %}
+      {% for href, label, active in links %}
+      <a href="{{ href }}"
+         class="flex items-center justify-between px-3 py-2 rounded text-sm {% if active %}bg-gray-900 text-white{% else %}text-gray-700 hover:bg-gray-100{% endif %}">
+        <span>{{ label }}</span>
+        {% if label == '友链管理' and counts and counts.sites %}
+          <span class="text-xs {% if active %}text-gray-300{% else %}text-gray-400{% endif %}">{{ counts.sites }}</span>
+        {% elif label == '抓取失败' and counts and counts.errors %}
+          <span class="text-xs px-1.5 rounded bg-red-100 text-red-700">{{ counts.errors }}</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+
+    <div class="px-3 py-4 border-t border-gray-100">
+      <div class="px-3 py-2">
+        <p class="text-sm text-gray-900 truncate">{{ current_user.username }}</p>
+        <p class="text-xs text-gray-400 truncate">API Key: {{ api_key_hint }}</p>
+      </div>
+      <form method="post" action="/web/logout">
+        <button class="w-full text-left px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-100">退出登录</button>
+      </form>
+    </div>
+  </aside>
+
+  {# ---- 主内容 ---- #}
+  <main class="flex-1 min-w-0 pb-20 md:pb-8">
+    <div class="px-4 md:px-8 py-6 max-w-5xl">
+      {% block page %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+{# ---- 底部标签栏（移动端） ---- #}
+<nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex z-20">
+  {% set tabs = [
+    ('/web', '概览', current_page == 'dashboard'),
+    ('/web/sites', '友链', current_page == 'sites'),
+    ('/web/posts', '文章', current_page == 'posts'),
+    ('/web/failed', '失败', current_page == 'failed'),
+    ('/web/settings', '设置', current_page == 'settings'),
+  ] %}
+  {% for href, label, active in tabs %}
+  <a href="{{ href }}"
+     class="flex-1 py-3 text-center text-xs {% if active %}text-gray-900 font-medium{% else %}text-gray-400{% endif %}">
+    {{ label }}
+    {% if label == '失败' and counts and counts.errors %}
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500 align-middle"></span>
+    {% endif %}
+  </a>
+  {% endfor %}
+</nav>
+
+{# ---- 弹窗与消息 ---- #}
+<div id="toast" class="fixed top-4 right-4 z-50 hidden">
+  <div id="toast-body" class="px-4 py-3 rounded bg-gray-900 text-white text-sm shadow-lg"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showToast(msg, ok = true) {
+  const el = document.getElementById('toast');
+  const body = document.getElementById('toast-body');
+  body.textContent = msg;
+  body.className = 'px-4 py-3 rounded text-white text-sm shadow-lg ' + (ok ? 'bg-gray-900' : 'bg-red-600');
+  el.classList.remove('hidden');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+async function api(url, options = {}) {
+  const res = await fetch(url, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 无响应体 */ }
+  if (!res.ok) {
+    throw new Error(data?.detail || `请求失败（${res.status}）`);
+  }
+  return data;
+}
+
+{% block page_scripts %}{% endblock %}
+</script>
+{% endblock %}

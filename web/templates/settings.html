@@ -1,0 +1,165 @@
+{% extends "layout.html" %}
+
+{% block title %}设置 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<h1 class="text-xl font-medium mb-6">设置</h1>
+
+{# ---- API Key ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">API Key</h2>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    在你的博客前端调用文章流时使用。只读，泄露了别人只能看到你的公开数据。
+  </p>
+
+  <div class="flex flex-col md:flex-row gap-2 mb-4">
+    <input readonly value="{{ api_key_display or '（暂无）' }}" id="key-box"
+           class="flex-1 px-3 py-2 rounded bg-gray-50 border border-gray-200 font-mono text-xs">
+    <div class="flex gap-2">
+      <button onclick="copyKey()" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">复制</button>
+      <button onclick="regen()"
+              class="px-3 py-2 rounded border border-red-200 text-red-600 text-sm hover:bg-red-50">重新生成</button>
+    </div>
+  </div>
+
+  <div class="p-3 rounded bg-gray-50 text-xs font-mono text-gray-600 space-y-1 overflow-x-auto">
+    <p><span class="text-gray-400"># 文章流</span></p>
+    <p>GET /v1/all?start=0&amp;end=20</p>
+    <p><span class="text-gray-400"># 请求头</span></p>
+    <p>X-API-Key: {{ api_key_display or 'fc_...' }}</p>
+  </div>
+</div>
+
+{# ---- AI 摘要设置 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <div class="flex items-center justify-between mb-1">
+    <h2 class="font-medium">AI 摘要</h2>
+    <label class="inline-flex items-center cursor-pointer">
+      <input type="checkbox" id="ai-enabled" {% if current_user.ai_enabled %}checked{% endif %}
+             onchange="saveAI()"
+             class="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900">
+    </label>
+  </div>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    为每篇文章生成摘要和推荐分，帮你快速判断值不值得点开。
+  </p>
+
+  <div class="space-y-3" id="ai-fields">
+    <div>
+      <label class="block text-sm text-gray-700 mb-1.5">模型服务商</label>
+      <select id="ai-provider" onchange="saveAI()"
+              class="w-full px-3 py-2 rounded border border-gray-300 bg-white">
+        <option value="">使用平台默认</option>
+        {% for p in providers %}
+        <option value="{{ p }}" {% if current_user.ai_provider == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label class="block text-sm text-gray-700 mb-1.5">模型名称</label>
+      <input id="ai-model" value="{{ current_user.ai_model or '' }}" placeholder="留空用服务商默认模型"
+             onchange="saveAI()"
+             class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
+    </div>
+
+    <div>
+      <label class="block text-sm text-gray-700 mb-1.5">API Key</label>
+      <input id="ai-key" type="password" value="" placeholder="{{ '已配置（留空表示不修改）' if current_user.has_own_ai_key else '留空则用平台额度' }}"
+             class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
+      <p class="mt-1 text-xs text-gray-400">
+        {% if current_user.has_own_ai_key %}
+          当前使用你自己的 Key，不消耗平台额度。
+        {% else %}
+          当前使用平台额度，每天最多 {{ quota }} 篇。
+        {% endif %}
+      </p>
+    </div>
+  </div>
+</div>
+
+{# ---- 数据导出 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">数据导出</h2>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    数据完全属于你，随时可以带走。
+  </p>
+  <div class="flex flex-wrap gap-2">
+    <a href="/api/export?format=json" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">JSON</a>
+    <a href="/api/export?format=csv" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">CSV</a>
+    <a href="/api/export?format=markdown" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">Markdown</a>
+    <button onclick="clearAll()"
+            class="px-3 py-2 rounded border border-red-200 text-red-600 text-sm hover:bg-red-50">清空全部数据</button>
+  </div>
+</div>
+
+{# ---- 账号 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5">
+  <h2 class="font-medium mb-1">账号</h2>
+  <dl class="text-sm space-y-2 mt-3">
+    <div class="flex justify-between">
+      <dt class="text-gray-500">用户名</dt>
+      <dd class="text-gray-900">{{ current_user.username }}</dd>
+    </div>
+    {% if current_user.email %}
+    <div class="flex justify-between">
+      <dt class="text-gray-500">邮箱</dt>
+      <dd class="text-gray-900">{{ current_user.email }}</dd>
+    </div>
+    {% endif %}
+    <div class="flex justify-between">
+      <dt class="text-gray-500">注册时间</dt>
+      <dd class="text-gray-900">{{ current_user.created_at | date }}</dd>
+    </div>
+  </dl>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+function copyKey() {
+  const v = document.getElementById('key-box').value;
+  if (!v.startsWith('fc_')) return showToast('暂无可复制内容', false);
+  navigator.clipboard.writeText(v)
+    .then(() => showToast('已复制'))
+    .catch(() => showToast('复制失败', false));
+}
+
+async function regen() {
+  if (!confirm('重新生成后旧 Key 立即失效，确定吗？')) return;
+  try {
+    const d = await api('/api/auth/api-key/regenerate', { method: 'POST' });
+    document.getElementById('key-box').value = d.api_key;
+    showToast('已生成新 Key');
+  } catch (e) { showToast(e.message, false); }
+}
+
+let aiTimer;
+async function saveAI() {
+  clearTimeout(aiTimer);
+  aiTimer = setTimeout(async () => {
+    const keyInput = document.getElementById('ai-key');
+    const body = {
+      ai_enabled: document.getElementById('ai-enabled').checked,
+      ai_provider: document.getElementById('ai-provider').value || null,
+      ai_model: document.getElementById('ai-model').value || null,
+    };
+    // Key 只在用户实际输入时才发送，避免把占位符存进去
+    if (keyInput.value) body.ai_api_key = keyInput.value;
+    try {
+      await api('/api/users/me', { method: 'PATCH', body: JSON.stringify(body) });
+      showToast('设置已保存');
+      if (keyInput.value) keyInput.value = '';
+    } catch (e) { showToast(e.message, false); }
+  }, 500);
+}
+
+async function clearAll() {
+  if (!confirm('这会删除你的全部站点和文章，无法恢复。\n\n确定要继续吗？')) return;
+  if (!confirm('真的确定？建议先导出备份。')) return;
+  try {
+    const d = await api('/api/users/me/data', { method: 'DELETE' });
+    showToast(`已删除 ${d.deleted_sites} 个站点、${d.deleted_posts} 篇文章`);
+    setTimeout(() => location.href = '/web', 1500);
+  } catch (e) { showToast(e.message, false); }
+}
+{% endblock %}

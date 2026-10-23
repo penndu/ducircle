@@ -1,0 +1,302 @@
+{% extends "layout.html" %}
+
+{% block title %}友链管理 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-xl font-medium">友链管理</h1>
+  <button onclick="openAdd()"
+          class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加友链</button>
+</div>
+
+{# ---- 筛选 ---- #}
+<div class="flex flex-wrap gap-2 mb-4">
+  <button onclick="setFilter('all')"
+          class="filter-btn px-3 py-1.5 rounded text-sm border {% if filter == 'all' %}bg-gray-900 text-white border-gray-900{% else %}bg-white border-gray-200 hover:bg-gray-100{% endif %}">
+    全部 {{ counts.sites }}
+  </button>
+  <button onclick="setFilter('error')"
+          class="filter-btn px-3 py-1.5 rounded text-sm border {% if filter == 'error' %}bg-red-600 text-white border-red-600{% else %}bg-white border-gray-200 hover:bg-gray-100{% endif %}">
+    抓取失败 {% if counts.errors %}<span class="ml-0.5">{{ counts.errors }}</span>{% endif %}
+  </button>
+</div>
+
+{% if search %}
+<p class="text-sm text-gray-500 mb-4">
+  搜索「{{ search }}」的结果：{{ sites | length }} 个
+  <a href="/web/sites" class="text-gray-400 hover:text-gray-600 ml-2">清除</a>
+</p>
+{% endif %}
+
+{% if sites %}
+<ul class="space-y-2">
+  {% for site in sites %}
+  <li class="bg-white rounded-lg border {% if site.error %}border-red-200{% else %}border-gray-200{% endif %} p-4">
+    <div class="flex items-start gap-3">
+      {% if site.avatar %}
+      <img src="{{ site.avatar }}" alt="" loading="lazy"
+           class="w-10 h-10 rounded object-cover shrink-0 bg-gray-100"
+           onerror="this.style.visibility='hidden'">
+      {% else %}
+      <div class="w-10 h-10 rounded bg-gray-100 shrink-0 grid place-items-center text-gray-400 text-sm">
+        {{ site.name[0] if site.name else '?' }}
+      </div>
+      {% endif %}
+
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="{{ site.url }}" target="_blank" rel="noopener noreferrer"
+             class="font-medium text-gray-900 hover:underline truncate">{{ site.name }}</a>
+
+          {% if site.error %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 shrink-0">抓取失败</span>
+          {% elif not site.active %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">已停用</span>
+          {% endif %}
+
+          {% if site.strategy %}
+          <span class="text-xs text-gray-400 shrink-0">{{ site.strategy | replace('fingerprint:', '框架 · ') }}</span>
+          {% endif %}
+        </div>
+
+        <p class="text-xs text-gray-400 mt-1 truncate">{{ site.url }}</p>
+
+        <p class="text-xs text-gray-400 mt-1.5">
+          {{ site.post_count }} 篇文章
+          {% if site.last_success_at %}· 最近成功 {{ site.last_success_at | ago }}{% endif %}
+          {% if site.consecutive_failures %}· 连续失败 {{ site.consecutive_failures }} 次{% endif %}
+        </p>
+
+        {% if site.error_message %}
+        <p class="text-xs text-red-600 mt-2 px-2 py-1.5 rounded bg-red-50 break-words">
+          {{ site.error_message }}
+        </p>
+        {% endif %}
+
+        {% if site.note %}
+        <p class="text-xs text-gray-500 mt-2 px-2 py-1 rounded bg-gray-50">{{ site.note }}</p>
+        {% endif %}
+      </div>
+
+      <div class="flex gap-1.5 shrink-0">
+        <button onclick="crawlNow({{ site.id }}, this)"
+                class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
+                title="立即抓取">抓取</button>
+        <button onclick="openRules({{ site.id }}, '{{ site.name }}')"
+                class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
+                title="配置自定义规则">规则</button>
+        <button onclick="removeSite({{ site.id }}, '{{ site.name }}')"
+                class="px-2 py-1 rounded text-xs border border-gray-200 text-red-600 hover:bg-red-50"
+                title="删除">删除</button>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="bg-white rounded-lg border border-gray-200 p-10 text-center">
+  <p class="text-gray-500 mb-1">{% if search %}没有匹配的友链{% else %}还没有添加友链{% endif %}</p>
+  <p class="text-sm text-gray-400 mb-6">{% if search %}试试换个关键词{% else %}点击右上角「添加友链」，或用友链页地址批量导入{% endif %}</p>
+  <button onclick="openAdd()"
+          class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加友链</button>
+</div>
+{% endif %}
+
+{# ---- 添加友链弹窗 ---- #}
+<div id="add-modal" class="hidden fixed inset-0 z-30 bg-black/40 grid place-items-center p-4">
+  <div class="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-medium">添加友链</h2>
+      <button onclick="closeModal('add-modal')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    <form id="add-form" class="p-5 space-y-4" onsubmit="return submitAdd(event)">
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">名称</label>
+        <input id="add-name" required placeholder="例如：某某的博客"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">网址</label>
+        <input id="add-url" required placeholder="example.com"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+        <p class="mt-1 text-xs text-gray-400">不用写 https://，会自动补全</p>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">备注（选填）</label>
+        <input id="add-note" placeholder="给自己看的备忘"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="flex-1 py-2.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加</button>
+        <button type="button" onclick="closeModal('add-modal')"
+                class="px-4 py-2.5 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---- 规则弹窗 ---- #}
+<div id="rules-modal" class="hidden fixed inset-0 z-30 bg-black/40 grid place-items-center p-4">
+  <div class="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h2 class="font-medium">自定义抓取规则</h2>
+        <p id="rules-site-name" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button onclick="closeModal('rules-modal')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+
+    <div class="p-5">
+      <div class="mb-4 px-3 py-2.5 rounded bg-amber-50 text-amber-800 text-xs leading-relaxed">
+        只有当自动识别完全抓不到这个站时，才需要在这里手动指定。
+        <strong>配了之后系统会完全信任你的规则，不再自动推断</strong>——
+        规则写错会导致抓不到内容。
+      </div>
+
+      <div id="rules-list" class="space-y-2 mb-4"></div>
+
+      <form id="rule-form" class="p-3 rounded border border-gray-200 bg-gray-50 space-y-3" onsubmit="return submitRule(event)">
+        <p class="text-xs font-medium text-gray-600">添加规则</p>
+        <div class="grid grid-cols-2 gap-2">
+          <select id="rule-field"
+                  class="px-2.5 py-2 rounded border border-gray-300 text-sm bg-white">
+            <option value="title">文章标题</option>
+            <option value="link">文章链接</option>
+            <option value="created">发布时间</option>
+            <option value="updated">更新时间</option>
+          </select>
+          <select id="rule-attr"
+                  class="px-2.5 py-2 rounded border border-gray-300 text-sm bg-white">
+            <option value="text">取文本内容</option>
+            <option value="href">取 href 属性</option>
+            <option value="datetime">取 datetime 属性</option>
+            <option value="src">取 src 属性</option>
+          </select>
+        </div>
+        <input id="rule-selector" required placeholder="CSS 选择器，例如 .post-title a"
+               class="w-full px-2.5 py-2 rounded border border-gray-300 text-sm font-mono">
+        <p class="text-xs text-gray-400">
+          标题和链接规则必须命中相同数量的元素，否则无法配对成文章。
+        </p>
+        <button type="submit" class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
+          添加规则
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+let currentSiteId = null;
+
+function setFilter(f) {
+  const url = new URL(location.href);
+  if (f === 'all') url.searchParams.delete('filter');
+  else url.searchParams.set('filter', f);
+  location.href = url.toString();
+}
+
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function openAdd() {
+  document.getElementById('add-form').reset();
+  openModal('add-modal');
+}
+
+async function submitAdd(e) {
+  e.preventDefault();
+  try {
+    await api('/api/sites', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: document.getElementById('add-name').value,
+        url: document.getElementById('add-url').value,
+        note: document.getElementById('add-note').value || null,
+      }),
+    });
+    location.reload();
+  } catch (err) { showToast(err.message, false); }
+  return false;
+}
+
+async function crawlNow(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const data = await api(`/api/admin/sites/${id}/crawl`, { method: 'POST' });
+    showToast(data.message || '已触发');
+    setTimeout(() => location.reload(), 2000);
+  } catch (e) {
+    showToast(e.message, false);
+    btn.disabled = false;
+    btn.textContent = '抓取';
+  }
+}
+
+async function removeSite(id, name) {
+  if (!confirm(`确定删除「${name}」吗？\n\n该站点的全部文章也会一并删除，此操作不可撤销。`)) return;
+  try {
+    const data = await api(`/api/sites/${id}?purge_posts=true`, { method: 'DELETE' });
+    showToast(`已删除，同时清理 ${data.deleted_posts} 篇文章`);
+    setTimeout(() => location.reload(), 1200);
+  } catch (e) { showToast(e.message, false); }
+}
+
+async function openRules(id, name) {
+  currentSiteId = id;
+  document.getElementById('rules-site-name').textContent = name;
+  document.getElementById('rules-list').innerHTML = '<p class="text-sm text-gray-400">加载中…</p>';
+  openModal('rules-modal');
+  await loadRules();
+}
+
+async function loadRules() {
+  try {
+    const rules = await api(`/api/sites/${currentSiteId}/rules`);
+    const box = document.getElementById('rules-list');
+    if (!rules.length) {
+      box.innerHTML = '<p class="text-sm text-gray-400 py-3 text-center">还没有规则，将使用自动识别</p>';
+      return;
+    }
+    const fieldNames = { title: '标题', link: '链接', created: '发布时间', updated: '更新时间' };
+    box.innerHTML = rules.map(r => `
+      <div class="flex items-center gap-2 px-3 py-2 rounded bg-gray-50 text-sm">
+        <span class="px-1.5 py-0.5 rounded bg-white border border-gray-200 text-xs shrink-0">${fieldNames[r.field] || r.field}</span>
+        <code class="flex-1 text-xs text-gray-700 truncate">${r.selector}</code>
+        <span class="text-xs text-gray-400 shrink-0">${r.attr}</span>
+        <button onclick="deleteRule(${r.id})" class="text-xs text-red-600 hover:underline shrink-0">删除</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('rules-list').innerHTML = `<p class="text-sm text-red-600">${e.message}</p>`;
+  }
+}
+
+async function submitRule(e) {
+  e.preventDefault();
+  try {
+    await api(`/api/sites/${currentSiteId}/rules`, {
+      method: 'POST',
+      body: JSON.stringify({
+        field: document.getElementById('rule-field').value,
+        selector: document.getElementById('rule-selector').value,
+        attr: document.getElementById('rule-attr').value,
+      }),
+    });
+    document.getElementById('rule-selector').value = '';
+    showToast('规则已添加');
+    await loadRules();
+  } catch (err) { showToast(err.message, false); }
+  return false;
+}
+
+async function deleteRule(ruleId) {
+  try {
+    await api(`/api/sites/${currentSiteId}/rules/${ruleId}`, { method: 'DELETE' });
+    showToast('规则已删除');
+    await loadRules();
+  } catch (e) { showToast(e.message, false); }
+}
+{% endblock %}

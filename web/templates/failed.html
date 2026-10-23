@@ -1,0 +1,135 @@
+{% extends "layout.html" %}
+
+{% block title %}抓取失败 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<h1 class="text-xl font-medium mb-1">抓取失败</h1>
+<p class="text-sm text-gray-400 mb-6">
+  {% if failed %}
+    这些站点暂时抓不到内容。多数情况是 RSS 和自动识别都失效了，
+    可以试试手动添加自定义规则。
+  {% else %}
+    所有站点都正常。
+  {% endif %}
+</p>
+
+{% if failed %}
+<ul class="space-y-3">
+  {% for site in failed %}
+  <li class="bg-white rounded-lg border border-red-200 p-4">
+    <div class="flex items-start gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="{{ site.url }}" target="_blank" rel="noopener noreferrer"
+             class="font-medium text-gray-900 hover:underline truncate">{{ site.name }}</a>
+          <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 shrink-0">
+            连续失败 {{ site.consecutive_failures }} 次
+          </span>
+        </div>
+
+        <p class="text-xs text-gray-400 mt-1 truncate">{{ site.url }}</p>
+
+        {% if site.error_message %}
+        <p class="text-xs text-red-600 mt-2 px-2 py-1.5 rounded bg-red-50 break-words">
+          {{ site.error_message }}
+        </p>
+        {% endif %}
+
+        <p class="text-xs text-gray-400 mt-2">
+          最后尝试：{{ site.last_crawled_at | ago }}
+          {% if site.last_success_at %}· 最后成功：{{ site.last_success_at | ago }}{% endif %}
+        </p>
+      </div>
+
+      <div class="flex gap-1.5 shrink-0">
+        <button onclick="crawlAgain({{ site.id }}, this)"
+                class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50">重试</button>
+        <a href="/web/sites"
+           class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50">配规则</a>
+      </div>
+    </div>
+
+    <details class="mt-3">
+      <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+        排查建议
+      </summary>
+      <ul class="mt-2 text-xs text-gray-500 space-y-1 list-disc pl-4 leading-relaxed">
+        <li>打开链接确认站点还活着，且没有被防火墙拦截</li>
+        <li>试试手动访问 <code class="bg-gray-100 px-1 rounded">{{ site.url }}atom.xml</code> 和
+            <code class="bg-gray-100 px-1 rounded">{{ site.url }}feed</code>，确认 RSS 地址</li>
+        <li>如果站点是纯前端渲染（JS 生成内容），任何抓取工具都拿不到内容</li>
+        <li>以上都正常的话，在友链管理页给这个站配置自定义 CSS 规则</li>
+      </ul>
+    </details>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="bg-white rounded-lg border border-gray-200 p-10 text-center">
+  <span class="inline-block w-10 h-10 rounded-full bg-green-50 text-green-600 grid place-items-center mb-3">✓</span>
+  <p class="text-gray-700 font-medium">没有失败的站点</p>
+  <p class="text-sm text-gray-400 mt-1">所有友链都能正常抓取</p>
+</div>
+{% endif %}
+
+{# ---- 最近抓取日志 ---- #}
+{% if logs %}
+<div class="mt-8">
+  <h2 class="font-medium text-gray-900 mb-3">最近抓取记录</h2>
+  <div class="table-scroll bg-white rounded-lg border border-gray-200">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-100 text-left text-xs text-gray-400">
+          <th class="px-4 py-2.5 font-normal">站点</th>
+          <th class="px-4 py-2.5 font-normal">结果</th>
+          <th class="px-4 py-2.5 font-normal hidden sm:table-cell">策略</th>
+          <th class="px-4 py-2.5 font-normal text-right">新增</th>
+          <th class="px-4 py-2.5 font-normal text-right hidden sm:table-cell">耗时</th>
+          <th class="px-4 py-2.5 font-normal text-right">时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr class="border-b border-gray-50 last:border-0">
+          <td class="px-4 py-2.5 max-w-[14rem] truncate text-gray-700">{{ log.site_url }}</td>
+          <td class="px-4 py-2.5">
+            {% if log.status == 'success' %}
+              <span class="text-green-600">成功</span>
+            {% elif log.status == 'skipped' %}
+              <span class="text-gray-400">跳过</span>
+            {% else %}
+              <span class="text-red-600" title="{{ log.error or '' }}">失败</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2.5 text-gray-400 text-xs hidden sm:table-cell">
+            {{ log.strategy | replace('fingerprint:', '') if log.strategy else '—' }}
+          </td>
+          <td class="px-4 py-2.5 text-right text-gray-700">{{ log.post_count }}</td>
+          <td class="px-4 py-2.5 text-right text-gray-400 text-xs hidden sm:table-cell">
+            {{ log.duration_ms }}ms
+          </td>
+          <td class="px-4 py-2.5 text-right text-gray-400 text-xs">{{ log.created_at | ago }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block page_scripts %}
+async function crawlAgain(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await api(`/api/admin/sites/${id}/crawl`, { method: 'POST' });
+    showToast('已触发重试');
+    setTimeout(() => location.reload(), 2500);
+  } catch (e) {
+    showToast(e.message, false);
+    btn.disabled = false;
+    btn.textContent = '重试';
+  }
+}
+{% endblock %}

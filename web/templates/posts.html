@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+
+{% block title %}文章流 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-xl font-medium">文章流</h1>
+  <span class="text-sm text-gray-400">共 {{ counts.posts }} 篇</span>
+</div>
+
+{% if posts %}
+<ul class="space-y-2.5">
+  {% for post in posts %}
+  <li class="bg-white rounded-lg border border-gray-200 p-4">
+    <div class="flex gap-3">
+      <div class="w-10 h-10 rounded shrink-0 bg-gray-100 overflow-hidden grid place-items-center">
+        {% if post.avatar %}
+        <img src="{{ post.avatar }}" alt="" loading="lazy" class="w-full h-full object-cover"
+             onerror="this.parentElement.innerHTML='<span class=\"text-gray-400 text-xs\">{{ post.site_name[0] }}</span>'">
+        {% else %}
+        <span class="text-gray-400 text-xs">{{ post.site_name[0] }}</span>
+        {% endif %}
+      </div>
+
+      <div class="flex-1 min-w-0">
+        <a href="{{ post.link }}" target="_blank" rel="noopener noreferrer"
+           class="font-medium text-gray-900 hover:underline block break-words">
+          {{ post.title }}
+        </a>
+
+        <p class="text-xs text-gray-400 mt-1 flex items-center gap-2 flex-wrap">
+          <a href="{{ post.site_url }}" target="_blank" rel="noopener noreferrer"
+             class="hover:text-gray-600">{{ post.site_name }}</a>
+          <span>·</span>
+          <span>{{ post.created | date if post.created else '日期未知' }}</span>
+          {% if not post.summary %}
+          <span class="px-1.5 py-0.5 rounded bg-gray-100">待摘要</span>
+          {% endif %}
+        </p>
+
+        {% if post.summary %}
+        <p class="text-sm text-gray-600 mt-2 leading-relaxed break-words">{{ post.summary }}</p>
+        {% endif %}
+
+        {% if post.ai_score is not none %}
+        <div class="mt-2.5 flex items-center gap-2">
+          <div class="h-1 w-24 bg-gray-100 rounded overflow-hidden">
+            <div class="h-full bg-gray-900 rounded" style="width: {{ post.ai_score * 10 }}%"></div>
+          </div>
+          <span class="text-xs text-gray-400">推荐分 {{ '%.1f' | format(post.ai_score) }}</span>
+        </div>
+        {% endif %}
+      </div>
+
+      <button onclick="deletePost({{ post.id }})"
+              class="self-start text-gray-300 hover:text-red-600 text-xs px-1 shrink-0"
+              title="删除这篇">×</button>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+
+{% if has_more %}
+<div class="mt-6 text-center">
+  <a href="/web/posts?offset={{ offset + limit }}"
+     class="inline-block px-4 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">
+    加载更多
+  </a>
+</div>
+{% endif %}
+
+{% else %}
+<div class="bg-white rounded-lg border border-gray-200 p-10 text-center">
+  <p class="text-gray-500 mb-1">还没有文章</p>
+  <p class="text-sm text-gray-400">添加友链后等待抓取，或在友链管理页点「抓取」立即触发</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block page_scripts %}
+async function deletePost(id) {
+  if (!confirm('确定删除这篇文章吗？')) return;
+  try {
+    await api(`/api/posts/${id}`, { method: 'DELETE' });
+    location.reload();
+  } catch (e) { showToast(e.message, false); }
+}
+{% endblock %}

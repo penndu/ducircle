@@ -1,0 +1,146 @@
+{% extends "layout.html" %}
+
+{% block title %}概览 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-medium text-gray-900">概览</h1>
+    <p class="text-sm text-gray-400 mt-0.5">
+      {% if last_crawled %}最近抓取：{{ last_crawled | ago }}{% else %}尚未开始抓取{% endif %}
+    </p>
+  </div>
+  <button onclick="triggerAll()"
+          class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 transition">
+    立即抓取全部
+  </button>
+</div>
+
+{# ---- 统计卡片 ---- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-400 mb-1">友链总数</p>
+    <p class="text-2xl font-medium">{{ stats.sites.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">活跃 {{ stats.sites.active }}</p>
+  </div>
+
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-400 mb-1">文章总数</p>
+    <p class="text-2xl font-medium">{{ stats.posts.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">
+      已摘要 {{ stats.posts.summarized }}
+      {% if stats.posts.total %}
+      <span class="text-gray-300">· {{ stats.posts.summary_rate }}%</span>
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-400 mb-1">抓取成功率</p>
+    <p class="text-2xl font-medium">
+      {{ stats.crawl.success_rate if stats.crawl.success_rate is not none else '-' }}<span class="text-base text-gray-400">%</span>
+    </p>
+    <p class="text-xs text-gray-400 mt-1">{{ stats.crawl.total_runs }} 次抓取</p>
+  </div>
+
+  <div class="bg-white rounded-lg border border-gray-200 p-4 {% if stats.sites.error %}ring-1 ring-red-200{% endif %}">
+    <p class="text-xs text-gray-400 mb-1">异常站点</p>
+    <p class="text-2xl font-medium {% if stats.sites.error %}text-red-600{% endif %}">{{ stats.sites.error }}</p>
+    {% if stats.sites.error %}
+    <a href="/web/failed" class="text-xs text-red-600 hover:underline mt-1 inline-block">去处理 →</a>
+    {% else %}
+    <p class="text-xs text-gray-400 mt-1">一切正常</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- 快速开始引导 ---- #}
+{% if stats.sites.total == 0 %}
+<div class="bg-white rounded-lg border border-gray-200 p-8 text-center mb-6">
+  <h2 class="font-medium text-gray-900 mb-2">还没有添加友链</h2>
+  <p class="text-sm text-gray-500 mb-6 max-w-md mx-auto leading-relaxed">
+    两种方式：填一个友链页地址自动导入，或者手动逐个添加。
+    RSS 会自动发现，博客框架自动识别。
+  </p>
+  <a href="/web/sites"
+     class="inline-block px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
+    添加第一个友链
+  </a>
+</div>
+{% endif %}
+
+{# ---- API Key ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-medium">API Key</h2>
+    <span class="text-xs text-gray-400">用于在你的博客前端调用文章流</span>
+  </div>
+  <p class="text-sm text-gray-600 mb-4 leading-relaxed">
+    只显示一次完整 Key，之后只能看到前 8 位。泄露了就重新生成。
+  </p>
+  <div class="flex flex-col md:flex-row gap-2">
+    <input readonly value="{{ api_key_display or '（暂无，请点击右侧按钮重新生成）' }}"
+           id="api-key-box"
+           class="flex-1 px-3 py-2 rounded bg-gray-50 border border-gray-200 font-mono text-xs">
+    <div class="flex gap-2">
+      <button onclick="copyKey()" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">复制</button>
+      <button onclick="regenerateKey()"
+              class="px-3 py-2 rounded border border-red-200 text-red-600 text-sm hover:bg-red-50">重新生成</button>
+    </div>
+  </div>
+</div>
+
+{# ---- 策略分布 ---- #}
+{% if strategy_rows %}
+<div class="bg-white rounded-lg border border-gray-200 p-5">
+  <h2 class="font-medium mb-1">抓取策略分布</h2>
+  <p class="text-xs text-gray-400 mb-4">
+    系统靠什么抓到你的文章。自动识别覆盖得越多，需要手写规则的站点越少。
+  </p>
+  <div class="space-y-2.5">
+    {% set max_count = strategy_rows[0][1] %}
+    {% for strategy, count in strategy_rows %}
+    <div>
+      <div class="flex justify-between text-sm mb-1">
+        <span class="text-gray-700">{{ strategy | replace('fingerprint:', '框架识别 · ') }}</span>
+        <span class="text-gray-400">{{ count }} 篇</span>
+      </div>
+      <div class="h-1.5 bg-gray-100 rounded overflow-hidden">
+        <div class="h-full bg-gray-900 rounded"
+             style="width: {{ (count / max_count * 100) | round | int }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block page_scripts %}
+async function triggerAll() {
+  if (!confirm('确定立即抓取全部友链吗？\n抓取会在后台进行，可能需要几分钟。')) return;
+  try {
+    const data = await api('/api/admin/crawl/all', { method: 'POST' });
+    showToast(data.message || '已触发');
+  } catch (e) { showToast(e.message, false); }
+}
+
+function copyKey() {
+  const box = document.getElementById('api-key-box');
+  if (!box.value || box.value.startsWith('（')) {
+    return showToast('暂无可复制的 Key', false);
+  }
+  navigator.clipboard.writeText(box.value)
+    .then(() => showToast('已复制到剪贴板'))
+    .catch(() => showToast('复制失败，请手动选中', false));
+}
+
+async function regenerateKey() {
+  if (!confirm('重新生成后，旧 Key 会立即失效。\n你的博客前端需要同步更新配置。\n\n确定继续吗？')) return;
+  try {
+    const data = await api('/api/auth/api-key/regenerate', { method: 'POST' });
+    document.getElementById('api-key-box').value = data.api_key;
+    showToast('已生成新 Key，请复制保存');
+  } catch (e) { showToast(e.message, false); }
+}
+{% endblock %}

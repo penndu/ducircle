@@ -251,8 +251,8 @@ async def v1_stats(user: CurrentUserKey, db: DbSession) -> dict:
         )
     ).scalar_one()
     posts_total = (
-        await db.execute(select(func.count(Post.id))).where(
-            Post.deleted_at.is_(None)
+        await db.execute(
+            select(func.count(Post.id)).where(Post.deleted_at.is_(None))
         )
     ).scalar_one()
     summarized = (

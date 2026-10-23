@@ -156,10 +156,20 @@ async def failed_sites(
 async def my_stats(
     user: CurrentUserSession, db: DbSession
 ) -> dict:
-    """活跃度统计。需求 Q2-B「谁还活着、谁已失联」的落地。"""
+    """活跃度统计。需求 Q2-B「谁还活着、谁已失联」的落地。
+
+    统计逻辑本体在 compute_user_stats，页面路由（web_pages.dashboard）
+    也直接调用它——直接调用 API 层函数不会触发 FastAPI 的依赖注入，
+    因此调用方必须自己保证 db 已注入、租户上下文已设置。
+    """
+    return await compute_user_stats(db)
+
+
+async def compute_user_stats(db) -> dict:
+    """统计逻辑。与路由分离，供页面、API、定时任务共用。"""
     sites_total = (
-        await db.execute(select(func.count(Site.id))).scalar_one()
-    )
+        await db.execute(select(func.count(Site.id)))
+    ).scalar_one()
     sites_active = (
         await db.execute(
             select(func.count(Site.id)).where(Site.active.is_(True), Site.error.is_(False))
@@ -195,8 +205,8 @@ async def my_stats(
 
     # 抓取成功率
     total_logs = (
-        await db.execute(select(func.count(CrawlLog.id))).scalar_one()
-    )
+        await db.execute(select(func.count(CrawlLog.id)))
+    ).scalar_one()
     failed_logs = (
         await db.execute(
             select(func.count(CrawlLog.id)).where(CrawlLog.status == "failed")
