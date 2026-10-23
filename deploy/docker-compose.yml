@@ -5,9 +5,7 @@
 #
 # 部署前确认：
 #   1. .env 已填好密码（不要提交到 git）
-#   2. 容器已接入 1Panel 的 MySQL/Redis 所在网络
-#      （1Panel 默认给每个容器建独立网络，需要手动加入）
-#   3. Docker Hub 仓库已创建（公开拉取不需要额外设置）
+#   2. 1panel-network 网络存在（1Panel 托管的容器都在这个网络上）
 services:
   app:
     # 默认拉 latest。部署时可以传 IMAGE_TAG 环境变量指定具体版本：
@@ -34,6 +32,17 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    # 必须接入 1Panel 的网络才能解析到 1Panel-mysql-wQr4 和
+    # 1Panel-redis-29uO。写在 compose 里而不是让人手动在面板上点，
+    # 是因为这一步最容易漏——漏了容器连不上库，
+    # 现象是「应用起来了但 /health 说 db: down」，很难立刻联想到网络。
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    # 外部网络：1Panel 建的，不是 compose 建的
+    external: true
 
 volumes:
   logs:
