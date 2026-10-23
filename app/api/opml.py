@@ -112,7 +112,7 @@ async def sample() -> PlainTextResponse:
         generate_sample_opml(),
         media_type="text/x-opml",
         headers={
-            "Content-Disposition": 'attachment; filename="fcircle-sample.opml"'
+            "Content-Disposition": 'attachment; filename="ducircle-sample.opml"'
         },
     )
 

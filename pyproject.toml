@@ -1,5 +1,5 @@
 [project]
-name = "fcircle"
+name = "ducircle"
 version = "0.1.0"
 description = "友链朋友圈 — 面向博客主的公开友链聚合服务"
 readme = "README.md"
@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.scripts]
-fcircle = "app.cli:main"
+ducircle = "app.cli:main"
 
 [build-system]
 requires = ["hatchling"]

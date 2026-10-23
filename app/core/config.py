@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     # ---- 数据库 ----
     mysql_host: str = "mysql"
     mysql_port: int = 3306
-    mysql_user: str = "fcircle"
-    mysql_password: str = "fcircle"
-    mysql_database: str = "fcircle"
+    mysql_user: str = "ducircle"
+    mysql_password: str = ""
+    mysql_database: str = "ducircle"
 
     # ---- Redis ----
     redis_url: str = "redis://redis:6379/0"
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     enable_custom_rules: bool = True
     # User-Agent，公开服务必须可识别
     user_agent: str = (
-        "fcircleBot/2.0 (+https://github.com/penndu/fcircle; "
+        "ducircleBot/2.0 (+https://ducircle.dusays.com; "
         "friendly circle-of-friends aggregator)"
     )
     # 同一站点两次抓取之间的最小间隔（秒），避免重复打扰对方

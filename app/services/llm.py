@@ -18,7 +18,7 @@ import httpx
 
 from app.core.config import get_settings
 
-logger = logging.getLogger("fcircle.llm")
+logger = logging.getLogger("ducircle.llm")
 
 
 class LLMError(Exception):

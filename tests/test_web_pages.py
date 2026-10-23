@@ -99,7 +99,7 @@ class TestRegistration:
         client, _ = client_with_app
         r = await register(client, "alice")
         assert r.status_code == 303
-        assert "fcircle_session" in r.cookies or "Location" in r.headers
+        assert "ducircle_session" in r.cookies or "Location" in r.headers
 
     @pytest.mark.asyncio
     async def test_duplicate_username_rejected(self, client_with_app):

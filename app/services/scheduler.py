@@ -18,7 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.config import get_settings
 from app.core.ratelimit import DistributedLock
 
-logger = logging.getLogger("fcircle.scheduler")
+logger = logging.getLogger("ducircle.scheduler")
 
 _scheduler: AsyncIOScheduler | None = None
 

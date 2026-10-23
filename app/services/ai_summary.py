@@ -27,7 +27,7 @@ from app.services.extractor import (
 )
 from app.services.llm import LLMClient, LLMError, parse_summary_response
 
-logger = logging.getLogger("fcircle.summary")
+logger = logging.getLogger("ducircle.summary")
 
 
 SUMMARY_PROMPT = """请阅读下面这篇博客文章，生成摘要和推荐分。

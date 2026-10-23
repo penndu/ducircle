@@ -84,7 +84,7 @@ async def _run_crawl(user_id: int, site_id: int) -> None:
     """后台抓取。异常在这里被吞掉——没人接收返回值，抛出只会污染日志。"""
     import logging
 
-    logger = logging.getLogger("fcircle.admin")
+    logger = logging.getLogger("ducircle.admin")
     from app.services.crawl_service import crawl_single_site
 
     try:
@@ -107,7 +107,7 @@ async def trigger_crawl_all(
     async def _run() -> None:
         import logging
 
-        logger = logging.getLogger("fcircle.admin")
+        logger = logging.getLogger("ducircle.admin")
         try:
             await crawl_all_pending()
         except Exception:  # noqa: BLE001

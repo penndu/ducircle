@@ -24,7 +24,7 @@ from app.models import CrawlLog, Post, Site, User
 from app.parser.base import CrawlResult
 from app.services.crawler import Crawler, save_crawl_result, should_crawl
 
-logger = logging.getLogger("fcircle.crawl")
+logger = logging.getLogger("ducircle.crawl")
 
 
 async def crawl_all_pending(max_sites: int | None = None) -> dict:

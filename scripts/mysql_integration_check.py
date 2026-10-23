@@ -39,7 +39,7 @@ async def main() -> None:
         f":{os.environ.get('MYSQL_PASSWORD', '')}"
         f"@{os.environ.get('MYSQL_HOST', '127.0.0.1')}"
         f":{os.environ.get('MYSQL_PORT', '3399')}"
-        f"/{os.environ.get('MYSQL_DATABASE', 'fcircle_verify')}"
+        f"/{os.environ.get('MYSQL_DATABASE', 'ducircle_verify')}"
         "?charset=utf8mb4"
     )
 

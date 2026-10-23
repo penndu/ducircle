@@ -14,7 +14,7 @@ import re
 
 from app.core.config import get_settings
 
-logger = logging.getLogger("fcircle.extract")
+logger = logging.getLogger("ducircle.extract")
 
 
 def extract_content(html: str, url: str | None = None) -> str | None:

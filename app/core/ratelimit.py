@@ -18,7 +18,7 @@ from redis.exceptions import RedisError
 
 from app.core.config import get_settings
 
-logger = logging.getLogger("fcircle.ratelimit")
+logger = logging.getLogger("ducircle.ratelimit")
 
 # 令牌桶：惰性补充，无需后台定时器
 LUA_TAKE = """

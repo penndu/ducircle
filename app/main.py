@@ -22,7 +22,7 @@ logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
-logger = logging.getLogger("fcircle")
+logger = logging.getLogger("ducircle")
 
 
 @asynccontextmanager

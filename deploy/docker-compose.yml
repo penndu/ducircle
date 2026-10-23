@@ -1,83 +1,38 @@
+# 1Panel 环境下的编排。
+#
+# 与本地开发版的区别：MySQL 与 Redis 由 1Panel 托管，是外部服务，
+# 这里不再起容器——重复启动会端口冲突，也会出现两份数据。
+#
+# 部署前必须确认：
+#   1. 应用容器与 1Panel 的 MySQL/Redis 在同一个 Docker 网络。
+#      1Panel 默认给每个容器建独立网络，需要手动接入，否则连不上。
+#      在 1Panel 的「容器」页面给本应用点「网络」加入对应网络即可。
+#   2. ../.env 已填好密码。
 services:
   app:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: fcircle:latest
+    image: ducircle:latest
+    container_name: ducircle
     restart: unless-stopped
     env_file: ../.env
-    environment:
-      MYSQL_HOST: mysql
-      REDIS_URL: redis://redis:6379/0
     ports:
-      # 只绑本机，由 Nginx/Caddy 反代对外。不直接暴露到公网。
-      - "127.0.0.1:8000:8000"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      # 反代上游端口。1Panel 反向代理指向 http://127.0.0.1:9527
+      - "127.0.0.1:9527:8000"
     volumes:
       - logs:/app/logs
-    # 抓取并发高，把 CPU 配额限制住，避免应用把整台机器吃满
+    # 抓取并发高，限制 CPU 避免吃满整机
     deploy:
       resources:
         limits:
           cpus: "1.5"
           memory: 1G
-
-  mysql:
-    image: mysql:8.0
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?必须设置}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-fcircle}
-      MYSQL_USER: ${MYSQL_USER:-fcircle}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?必须设置}
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      # 文章流查询大量排序，InnoDB 缓冲池给足
-      - --innodb-buffer-pool-size=256M
-      - --max-connections=200
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command:
-      - redis-server
-      - --maxmemory
-      - 128mb
-      # 缓存数据丢了可以重建，用 allkeys-lru
-      - --maxmemory-policy
-      - allkeys-lru
-      - --appendonly
-      - "no"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
-  mysql_data:
-  redis_data:
   logs:

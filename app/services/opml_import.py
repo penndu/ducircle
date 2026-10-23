@@ -21,7 +21,7 @@ from app.core.security import site_hash
 from app.models import Blacklist, Site
 from app.services.opml_parser import OpmlEntry, dedupe_entries, parse_opml
 
-logger = logging.getLogger("fcircle.import")
+logger = logging.getLogger("ducircle.import")
 
 
 async def import_opml(

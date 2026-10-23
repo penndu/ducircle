@@ -18,7 +18,7 @@ MAX_AGE = 7 * 24 * 3600
 
 # Session Cookie 名。放这里而不是 deps.py——cookie 的读写方都需要它，
 # 放在核心模块里避免认证层与路由层互相导入。
-SESSION_COOKIE = "fcircle_session"
+SESSION_COOKIE = "ducircle_session"
 
 _serializer: URLSafeTimedSerializer | None = None
 
@@ -28,7 +28,7 @@ def _get_serializer() -> URLSafeTimedSerializer:
     if _serializer is None:
         settings = get_settings()
         _serializer = URLSafeTimedSerializer(
-            settings.secret_key, salt="fcircle-session"
+            settings.secret_key, salt="ducircle-session"
         )
     return _serializer
 

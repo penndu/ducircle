@@ -153,7 +153,7 @@ def to_markdown(data: dict, max_posts: int = 200) -> str:
 def filename_for(fmt: str) -> str:
     stamp = datetime.now().strftime("%Y%m%d")
     ext = {"json": "json", "csv": "csv", "markdown": "md"}.get(fmt, "txt")
-    return f"fcircle-export-{stamp}.{ext}"
+    return f"ducircle-export-{stamp}.{ext}"
 
 
 async def stream_export(db: AsyncSession, fmt: str) -> AsyncIterator[str]:

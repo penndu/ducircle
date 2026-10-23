@@ -26,7 +26,7 @@ from urllib.parse import urljoin, urlsplit
 
 from app.core.security import normalize_url, site_hash
 
-logger = logging.getLogger("fcircle.opml")
+logger = logging.getLogger("ducircle.opml")
 
 # 单个文件的上限。恶意/损坏的文件可能嵌套极深或条目极多，
 # 不限制会让解析占满内存。

@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager, contextmanager
 
 import logging
 
-logger = logging.getLogger("fcircle.tenant")
+logger = logging.getLogger("ducircle.tenant")
 from contextvars import ContextVar
 
 from sqlalchemy import event

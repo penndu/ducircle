@@ -12,7 +12,7 @@ import logging
 from app.core.ratelimit import RedisManager
 from redis.exceptions import RedisError
 
-logger = logging.getLogger("fcircle.stats")
+logger = logging.getLogger("ducircle.stats")
 
 SNAPSHOT_KEY = "stats:snapshot"
 # 快照比调度周期长一点过期，避免任务没跑就彻底没数据
