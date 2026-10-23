@@ -32,9 +32,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 COPY app ./app
 
+# 先装构建后端再用 --no-build-isolation安装本项目。
+# 否则 pip 会在隔离环境里临时下载 hatchling，
+# 那一步要访问 PyPI——容器网络不稳时会失败，
+# 而且 BuildKit 会把真实报错吞掉只留 metadata-generation-failed。
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
-    && /opt/venv/bin/pip install .
+    && /opt/venv/bin/pip install hatchling \
+    && /opt/venv/bin/pip install --no-build-isolation .
 
 # ---------- runtime ----------
 FROM python:3.12-slim AS runtime
