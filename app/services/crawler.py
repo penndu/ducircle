@@ -413,7 +413,10 @@ async def _resolve_site_id(session, article_url: str, current_site: Site) -> int
 def should_crawl(site: Site, now: datetime | None = None) -> bool:
     """按上次抓取时间与失败次数判断是否该抓这个站点。"""
     now = now or datetime.now()
-    if not site.active:
+    # 注意用 `is False` 而非 `not` —— SQLAlchemy 的 Python 侧默认值只在
+    # INSERT 时生效，构造出的对象属性可能是 None。用 `not` 判断会把
+    # 「没设过 active」误判成「已停用」，导致站点永远不被抓取。
+    if site.active is False:
         return False
     if site.last_crawled_at is None:
         return True

@@ -31,21 +31,28 @@ async def lifespan(app: FastAPI):
     logger.info("正在启动 %s", settings.app_name)
 
     import app.db as db_module
+    from app.core.ratelimit import RedisManager
+    from app.services.scheduler import shutdown_scheduler, start_scheduler
 
     if not await db_module.check_db():
         logger.error("数据库连接失败，请检查 MYSQL_* 配置")
         raise RuntimeError("数据库不可用")
-
     logger.info("数据库连接正常")
 
-    # 调度器在P6 接入，此处先留位置
-    scheduler = None
-    app.state.scheduler = scheduler
+    if await RedisManager.instance().ping():
+        logger.info("Redis 连接正常")
+    else:
+        # Redis 挂了限流和锁都失效，但服务本身还能用——
+        # 限流降级放行，分布式锁也放行（代价是可能重复抓取）。
+        # 不因此拒绝启动：数据库正常就该跑起来。
+        logger.warning("Redis 不可用，限流与分布式锁将降级，请尽快修复")
+
+    app.state.scheduler = await start_scheduler()
 
     yield
 
-    if scheduler is not None:
-        scheduler.shutdown(wait=False)
+    await shutdown_scheduler()
+    await RedisManager.instance().close()
     await db_module.dispose_engine()
     logger.info("已关闭")
 
@@ -67,10 +74,11 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(TenantContextMiddleware)
 
 # ---- 路由 ----
-from app.api import auth  # noqa: E402
+from app.api import admin, auth  # noqa: E402
 from app.api import posts, sites  # noqa: E402
 
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(sites.router)
 app.include_router(posts.web_router)
 app.include_router(posts.v1_router)
