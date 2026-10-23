@@ -116,26 +116,66 @@ curl -s https://ducircle.dusays.com/health
 
 ## 日常更新
 
-**两步：push，然后 SSH 部署。**
+**三步：push → 看版本号 → SSH 部署。**
 
 ```bash
-# 本机
+# 1. 本机
 git commit -am "改动说明"
 git push
 ```
 
-等 Actions 变绿后：
+等 Actions 变绿后，**去 commit 的评论里看版本号**：
+
+<https://github.com/penndu/ducircle/commits/main> → 点最新 commit → 看「镜像构建」评论
 
 ```bash
-# 服务器
+# 2. 服务器（把版本号换成实际的）
 ssh dusays 'cd /opt/1panel/www/sites/ducircle.dusays.com/index && \
   git pull origin main && \
-  IMAGE_TAG=<Actions 里显示的版本号> docker compose -f deploy/docker-compose.yml pull && \
-  IMAGE_TAG=<版本号> docker compose -f deploy/docker-compose.yml up -d'
+  IMAGE_TAG=202610240047 docker compose -f deploy/docker-compose.yml pull && \
+  IMAGE_TAG=202610240047 docker compose -f deploy/docker-compose.yml up -d'
+
+# 3. 验证
+curl -s https://ducircle.dusays.com/health
+# {"status":"ok","db":"ok","version":"0.1.0","build":"202610240047",...}
 ```
 
-或者去 <https://github.com/penndu/ducircle/actions> 看版本号，
-再手动 SSH 操作。
+`build` 字段应该等于你部署的版本号。
+
+---
+
+## ⚠️ 必须用时间戳标签部署，不要用 latest
+
+**这是个真实踩过的坑。** Docker Hub 的 manifest 有 CDN 缓存，
+短时间内 `docker pull latest` 可能拿到的还是旧的 manifest——
+`docker images` 显示的 digest 和上次完全一样，容器跑的也是旧代码，
+但 CI 明明显示 push 成功。
+
+用时间戳标签就完全没这个问题：新标签没有缓存。
+
+```bash
+# ✅ 对
+IMAGE_TAG=202610240047 docker compose -f deploy/docker-compose.yml up -d
+
+# ❌ 错（可能拉到旧镜像）
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+**怎么确认拉到的对不对：**
+
+```bash
+docker exec ducircle printenv DUCIRCLE_VERSION
+# 应该输出你指定的版本号
+```
+
+### 顺带说下 compose 的 pull_policy
+
+已设 `pull_policy: always`。Docker 默认的 `missing` 策略是
+「本地没这个镜像才拉」——本地有了 latest 就永远不更新，
+`force-recreate` 也拉不到新的。
+
+但 **pull_policy 也救不了 latest 的 CDN 缓存问题**，
+所以还是用时间戳标签。
 
 ### 构建失败时
 
