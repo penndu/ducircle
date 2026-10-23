@@ -66,9 +66,6 @@ jobs:
       - name: 单元测试
         run: pytest tests/ -q -p no:warnings
 
-      - name: 设置 Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: 登录 Docker Hub
         uses: docker/login-action@v3
         with:
@@ -93,28 +90,41 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "构建版本: $TAG" >> "$GITHUB_STEP_SUMMARY"
 
+      # 用原生 docker build + push，不用 buildx。
+      #
+      # 之前用 buildx --push 时出现过「CI 显示 Success，
+      # 但 Docker Hub 上的镜像没更新」——查了很久才定位到是
+      # buildx 的缓存行为。原生 docker build 的行为更直白：
+      # 构建完就是本地镜像，push 就是推上去。
+      # 只构建 amd64（服务器是 x86），不需要 buildx 的多架构能力。
       - name: 构建并推送
         env:
           VERSION_TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          set -o pipefail
-          # --no-cache 不用 GHA 缓存。
-          # 之前用 type=gha 缓存时出现过「CI 显示成功，
-          # 但 Docker Hub 上的镜像没更新」的情况——
-          # 缓存命中导致跳过了实际构建。
-          # 构建时间只有 1 分多钟，不值得为缓存冒这个险。
-          docker buildx build \
-            --platform linux/amd64 \
-            --no-cache \
+          set -euo pipefail
+
+          echo "==> 构建"
+          docker build \
             --build-arg BUILD_VERSION="$VERSION_TAG" \
             --build-arg BUILD_TIME="$(TZ=Asia/Shanghai date -Iseconds)" \
             -f deploy/Dockerfile \
             -t ${{ env.IMAGE_NAME }}:latest \
             -t ${{ env.IMAGE_NAME }}:"$VERSION_TAG" \
             -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --push \
-            --progress=plain . 2>&1 | tee build.log
-        continue-on-error: true
+            . 2>&1 | tee build.log
+
+          echo ""
+          echo "==> 推送"
+          # 逐个标签推，任何一个失败都会让步骤失败
+          for tag in latest "$VERSION_TAG" "${{ github.sha }}"; do
+            echo "--- push ${{ env.IMAGE_NAME }}:$tag ---"
+            docker push ${{ env.IMAGE_NAME }}:"$tag"
+          done
+
+          echo ""
+          echo "==> 推送后的本地镜像信息"
+          docker images --digests ${{ env.IMAGE_NAME }} \
+            --format "{{.Tag}}  {{.Digest}}  {{.ID}}"
 
       # 从 Docker Hub 把刚推的镜像拉回来，验证内容确实是新的。
       #
@@ -134,6 +144,10 @@ jobs:
             echo "构建版本: $VERSION_TAG"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # 先删本地镜像——否则 pull 会命中本地缓存，
+          # 验证的就是刚构建的那份，不是 Docker Hub 上的。
+          docker rmi -f ${{ env.IMAGE_NAME }}:"$VERSION_TAG" >/dev/null 2>&1 || true
 
           # 拉回来，看容器里带的版本号对不对
           if docker pull ${{ env.IMAGE_NAME }}:"$VERSION_TAG" 2>/dev/null; then
