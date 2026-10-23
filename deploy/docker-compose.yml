@@ -10,7 +10,10 @@
 #   3. Docker Hub 仓库已创建（公开拉取不需要额外设置）
 services:
   app:
-    image: penndu/ducircle:latest
+    # 默认拉 latest。部署时可以传 IMAGE_TAG 环境变量指定具体版本：
+    #   IMAGE_TAG=202610221200 docker compose -f deploy/docker-compose.yml up -d
+    # 这样回滚只要改一个版本号，不用改文件、不污染工作区。
+    image: penndu/ducircle:${IMAGE_TAG:-latest}
     container_name: ducircle
     restart: unless-stopped
     env_file: ../.env

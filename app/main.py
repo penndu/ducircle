@@ -100,6 +100,8 @@ if static_dir.exists():
 @app.get("/health", tags=["运维"], summary="健康检查")
 async def health() -> dict:
     """供 Docker HEALTHCHECK 和负载均衡探活使用。"""
+    import os
+
     import app.db as db_module
 
     db_ok = await db_module.check_db()
@@ -107,6 +109,11 @@ async def health() -> dict:
         "status": "ok" if db_ok else "degraded",
         "db": "ok" if db_ok else "down",
         "version": app.version,
+        # 构建版本，由 CI 通过 --build-arg 注入。
+        # 部署后第一件事就是确认跑的是不是预期的那个版本——
+        # 部署到 latest 时这一项尤其有用。
+        "build": os.environ.get("DUCIRCLE_VERSION", "dev"),
+        "built_at": os.environ.get("DUCIRCLE_BUILD_TIME", "unknown"),
     }
 
 

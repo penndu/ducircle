@@ -35,6 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      # 时间戳版本标签，deploy job 用它精确部署
+      tag: ${{ steps.ver.outputs.tag }}
 
     steps:
       - name: 检出代码
@@ -92,16 +95,31 @@ jobs:
       # 不用 build-push-action，自己跑 buildx 并把完整日志落盘。
       # action 的日志被 BuildKit 格式化后只剩 summary，
       # 真正的原因（比如 pip 报错）会丢——排查时拿不到。
+      # 时间戳标签：202610221200 这样的 12 位数字。
+      # 用 TZ=Asia/Shanghai 保证和服务器时区一致，
+      # 否则 UTC 时间会比本地早 8 小时，看日志时容易误判新旧。
+      - name: 生成版本标签
+        id: ver
+        run: |
+          TAG=$(TZ=Asia/Shanghai date +%Y%m%d%H%M)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "构建版本: $TAG" >> "$GITHUB_STEP_SUMMARY"
+
       - name: 构建并推送
+        env:
+          VERSION_TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -o pipefail
           docker buildx build \
             --platform linux/amd64 \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --build-arg BUILD_VERSION="$VERSION_TAG" \
+            --build-arg BUILD_TIME="$(TZ=Asia/Shanghai date -Iseconds)" \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             -f deploy/Dockerfile \
             -t ${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.IMAGE_NAME }}:"$VERSION_TAG" \
             -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --push \
             --progress=plain . 2>&1 | tee build.log
@@ -144,6 +162,12 @@ jobs:
           fi
           echo "构建成功"
 
+      # 把版本标签传给 deploy job，让部署精确指向本次构建。
+      # deploy job 要用 needs.build.outputs.tag 读它，
+      # 因此必须在 build job 上声明 outputs。
+      - name: 输出版本信息
+        run: echo "tag=${{ steps.ver.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -160,6 +184,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           # set -e 让任何一步失败就停下——
           # 健康检查不过时不报告成功，Actions 标记为失败。
+          env:
+            VERSION_TAG: ${{ needs.build.outputs.tag }}
           script: |
             set -e
             cd /opt/1panel/www/sites/ducircle.dusays.com/index
@@ -167,17 +193,43 @@ jobs:
             echo "==> 拉取代码"
             git pull origin main
 
-            echo "==> 拉取镜像"
-            docker compose -f deploy/docker-compose.yml pull
+            # 把 compose 里的 image 指向本次构建的版本标签，
+            # 而不是 latest。指向 latest 会导致「以为部署了新版本，
+            # 实际 pull 到的是缓存或旧镜像」，回滚时也无从下手。
+            # IMAGE_TAG 是环境变量，不改仓库里的文件——
+            # 服务器上的工作区会保持干净。
+            export IMAGE_TAG="$VERSION_TAG"
+
+            echo "==> 拉取镜像 $VERSION_TAG"
+            IMAGE_TAG="$VERSION_TAG" docker compose -f deploy/docker-compose.yml pull
 
             echo "==> 重启服务"
-            docker compose -f deploy/docker-compose.yml up -d --remove-orphans
+            IMAGE_TAG="$VERSION_TAG" docker compose -f deploy/docker-compose.yml up -d --remove-orphans
+
+            # 记录当前版本，回滚时能查
+            echo "$VERSION_TAG" > .deployed-version
+            echo "==> 已部署版本 $VERSION_TAG"
 
             echo "==> 等待启动（容器内要先跑迁移）"
             sleep 15
 
             echo "==> 健康检查"
-            if ! curl -fsS http://127.0.0.1:9527/health; then
+            HEALTH=$(curl -fsS http://127.0.0.1:9527/health) || {
+              echo "健康检查请求失败"
+              docker logs --tail 50 ducircle 2>&1
+              exit 1
+            }
+            echo "$HEALTH"
+
+            # 确认跑的是本次构建的版本，而不是缓存或旧镜像
+            RUNNING=$(echo "$HEALTH" | grep -oE '"build":"[^"]+"' | cut -d'"' -f4)
+            if [ "$RUNNING" != "$VERSION_TAG" ]; then
+              echo "版本不符：期望 $VERSION_TAG，实际 $RUNNING"
+              exit 1
+            fi
+            echo "版本确认：$RUNNING"
+
+            if ! curl -fsS http://127.0.0.1:9527/health > /dev/null; then
               echo ""
               echo "健康检查失败，容器日志："
               docker logs --tail 50 ducircle 2>&1

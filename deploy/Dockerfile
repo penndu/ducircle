@@ -50,10 +50,17 @@ RUN python -m venv /opt/venv \
 # ---------- runtime ----------
 FROM python:3.12-slim AS runtime
 
+# BUILD_VERSION / BUILD_TIME 由 CI 通过 --build-arg 传入，
+# 让人在服务器上能一眼看出跑的是哪个版本（docker inspect / 应用日志里）。
+ARG BUILD_VERSION=dev
+ARG BUILD_TIME=unknown
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    DUCIRCLE_VERSION="${BUILD_VERSION}" \
+    DUCIRCLE_BUILD_TIME="${BUILD_TIME}"
 
 # curl 供 HEALTHCHECK 用。源替换同 builder 阶段，理由见上。
 RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/debian|g; \
