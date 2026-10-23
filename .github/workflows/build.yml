@@ -31,7 +31,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # 需要 write 才能往 commit 上写构建结果评论。
+      # 那个评论记录了确切的时间戳标签——服务器部署要用它，
+      # 因为 Docker Hub 的 latest manifest 有 CDN 缓存，
+      # 直接 pull latest 可能拿到旧的。
+      contents: write
 
     steps:
       - name: 检出代码
