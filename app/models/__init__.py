@@ -2,7 +2,16 @@
 
 from app.models.base import Base
 from app.models.post import AIQuotaLog, CrawlLog, Post
-from app.models.site import Blacklist, RuleField, Site, SiteRule, SiteSource, SiteTag, Tag
+from app.models.site import (
+    Blacklist,
+    LinkPage,
+    RuleField,
+    Site,
+    SiteRule,
+    SiteSource,
+    SiteTag,
+    Tag,
+)
 from app.models.user import User
 
 __all__ = [
@@ -15,6 +24,7 @@ __all__ = [
     "Tag",
     "SiteTag",
     "Blacklist",
+    "LinkPage",
     "Post",
     "CrawlLog",
     "AIQuotaLog",

@@ -177,3 +177,43 @@ class Blacklist(Base, TimestampMixin):
     pattern: Mapped[str] = mapped_column(String(512), nullable=False)
     is_regex: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     note: Mapped[str | None] = mapped_column(String(256), default=None)
+
+
+class LinkPage(Base, TimestampMixin):
+    """关注的友链页。
+
+    填一个友链页地址（如 https://example.com/friends/），
+    系统会解析出页面上的所有友情链接并加入友链列表，
+    之后定期重新解析，发现新友链就自动补进来。
+
+    与 Site 的区别：Site 是「一个要抓取文章的博客」，
+    LinkPage 是「一张写着别人博客地址的清单页」。
+    """
+
+    __tablename__ = "link_pages"
+    __table_args__ = (
+        Index("ix_link_pages_user_hash", "user_id", "url_hash", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    url_hash: Mapped[str] = mapped_column(
+        String(40), nullable=False, comment="规范化后 URL 的 SHA1，用于同页去重"
+    )
+    name: Mapped[str | None] = mapped_column(
+        String(256), default=None, comment="页面标题，解析时自动填"
+    )
+    note: Mapped[str | None] = mapped_column(String(256), default=None)
+
+    # 上次解析发现的友链数
+    found_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 上次解析新增了几条
+    added_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    last_error: Mapped[str | None] = mapped_column(Text, default=None)
+
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -1,0 +1,222 @@
+{% extends "layout.html" %}
+
+{% block title %}友链页 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-medium">友链页</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      填一个友情链接页的地址，自动把上面的好友加进友链列表，之后定期检测有没有新朋友。
+    </p>
+  </div>
+  <button onclick="openAdd()"
+          class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 shrink-0">添加友链页</button>
+</div>
+
+{% if link_pages %}
+<ul class="space-y-2">
+  {% for page in link_pages %}
+  <li class="bg-white rounded-lg border {% if page.last_error %}border-red-200{% else %}border-gray-200{% endif %} p-4">
+    <div class="flex items-start gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="{{ page.url }}" target="_blank" rel="noopener noreferrer"
+             class="font-medium text-gray-900 hover:underline truncate">{{ page.name or page.url }}</a>
+          {% if not page.active %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">已停用</span>
+          {% endif %}
+          {% if page.added_count %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700 shrink-0">新增 {{ page.added_count }}</span>
+          {% endif %}
+        </div>
+
+        <p class="text-xs text-gray-400 mt-1 truncate">{{ page.url }}</p>
+
+        <div class="flex items-center gap-3 mt-2 text-xs text-gray-400 flex-wrap">
+          <span>发现 {{ page.found_count }} 个好友</span>
+          {% if page.last_checked_at %}
+          <span>上次检测 {{ page.last_checked_at | replace('T', ' ')[:16] }}</span>
+          {% else %}
+          <span>尚未检测</span>
+          {% endif %}
+        </div>
+
+        {% if page.last_error %}
+        <p class="text-xs text-red-600 mt-2">{{ page.last_error }}</p>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-1 shrink-0">
+        <button onclick="scanNow({{ page.id }})" title="立即检测"
+                class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
+          检测
+        </button>
+        <button onclick="toggle({{ page.id }})" title="{% if page.active %}停用{% else %}启用{% endif %}"
+                class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">
+          {% if page.active %}停用{% else %}启用{% endif %}
+        </button>
+        <button onclick="remove({{ page.id }})" title="删除"
+                class="px-2 py-1 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50">
+          删除
+        </button>
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="text-center py-16 bg-white rounded-lg border border-gray-200">
+  <p class="text-gray-500 mb-1">还没有关注任何友链页</p>
+  <p class="text-sm text-gray-400">
+    比如你自己的 <code class="text-xs bg-gray-100 px-1 rounded">https://dusays.com/friends/</code>
+  </p>
+  <button onclick="openAdd()"
+          class="mt-4 px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加第一个</button>
+</div>
+{% endif %}
+
+{# ---- 添加弹窗 ---- #}
+<div id="add-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+    <div class="p-5 border-b border-gray-100">
+      <h2 class="text-base font-medium">添加友链页</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        填一个写着别人博客地址的页面，比如 <code>/friends/</code>、<code>/links/</code>、<code>/roll/</code>
+      </p>
+    </div>
+    <div class="p-5 space-y-3">
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">友链页地址</label>
+        <input id="lp-url" placeholder="https://dusays.com/friends/"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">备注（可选）</label>
+        <input id="lp-note" placeholder="比如：我的博客友链页"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none text-sm">
+      </div>
+      <p id="lp-error" class="text-xs text-red-600 hidden"></p>
+    </div>
+    <div class="p-4 border-t border-gray-100 flex justify-end gap-2">
+      <button onclick="closeAdd()"
+              class="px-3 py-2 rounded border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">取消</button>
+      <button id="lp-submit" onclick="submitAdd()"
+              class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加并检测</button>
+    </div>
+  </div>
+</div>
+
+{# ---- 检测结果弹窗 ---- #}
+<div id="scan-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+    <div class="p-5 border-b border-gray-100">
+      <h2 class="text-base font-medium">检测结果</h2>
+      <p id="scan-summary" class="text-xs text-gray-500 mt-1"></p>
+    </div>
+    <div id="scan-body" class="p-5 overflow-y-auto flex-1"></div>
+    <div class="p-4 border-t border-gray-100 flex justify-end">
+      <button onclick="document.getElementById('scan-modal').classList.add('hidden')"
+              class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">知道了</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openAdd() {
+  document.getElementById('add-modal').classList.remove('hidden');
+  document.getElementById('lp-error').classList.add('hidden');
+  document.getElementById('lp-url').value = '';
+  document.getElementById('lp-note').value = '';
+  setTimeout(() => document.getElementById('lp-url').focus(), 50);
+}
+
+function closeAdd() {
+  document.getElementById('add-modal').classList.add('hidden');
+}
+
+async function submitAdd() {
+  const url = document.getElementById('lp-url').value.trim();
+  const note = document.getElementById('lp-note').value.trim();
+  const errEl = document.getElementById('lp-error');
+  const btn = document.getElementById('lp-submit');
+
+  if (!url) {
+    errEl.textContent = '请填友链页地址';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '检测中…';
+  errEl.classList.add('hidden');
+
+  try {
+    const resp = await fetch('/api/link-pages', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url, note: note || null})
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      errEl.textContent = data.detail || '添加失败';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    location.reload();
+  } catch (e) {
+    errEl.textContent = '请求失败：' + e.message;
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '添加并检测';
+  }
+}
+
+async function scanNow(id) {
+  const resp = await fetch(`/api/link-pages/${id}/scan`, {method: 'POST'});
+  const data = await resp.json();
+
+  const body = document.getElementById('scan-body');
+  const summary = document.getElementById('scan-summary');
+
+  if (data.error && !data.total) {
+    summary.textContent = '检测失败';
+    body.innerHTML = `<p class="text-sm text-red-600">${escapeHtml(data.error)}</p>`;
+  } else {
+    summary.textContent = `共发现 ${data.total} 个好友，新增 ${data.added} 个，跳过已存在 ${data.skipped} 个`;
+    if (data.new_sites && data.new_sites.length) {
+      body.innerHTML = `<p class="text-xs text-gray-500 mb-2">新增的好友：</p><ul class="space-y-1">` +
+        data.new_sites.map(s =>
+          `<li class="text-sm"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"
+              class="text-gray-900 hover:underline">${escapeHtml(s.name || s.url)}</a>
+           <span class="text-xs text-gray-400">${escapeHtml(s.url)}</span></li>`
+        ).join('') + '</ul>';
+    } else {
+      body.innerHTML = '<p class="text-sm text-gray-500">没有新朋友。</p>';
+    }
+  }
+  document.getElementById('scan-modal').classList.remove('hidden');
+}
+
+async function toggle(id) {
+  await fetch(`/api/link-pages/${id}/toggle`, {method: 'POST'});
+  location.reload();
+}
+
+async function remove(id) {
+  if (!confirm('删除这个友链页？\n已经加进列表的友链不会被删除。')) return;
+  await fetch(`/api/link-pages/${id}`, {method: 'DELETE'});
+  location.reload();
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : s;
+  return d.innerHTML;
+}
+</script>
+{% endblock %}

@@ -97,6 +97,17 @@ async def start_scheduler() -> AsyncIOScheduler:
         )
 
         scheduler.add_job(
+            lambda: _run_locked("link-pages", run_link_page_scan),
+            _cron(settings.link_page_cron),
+            id="link_page_scan",
+            name="友链页检测",
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+            max_instances=1,
+        )
+
+        scheduler.add_job(
             lambda: _run_locked("stats", run_stats_snapshot),
             _cron(settings.stats_cron),
             id="stats",
@@ -149,6 +160,20 @@ async def run_ai_summaries() -> dict:
     from app.services.ai_summary import summarize_all_pending
 
     return await summarize_all_pending()
+
+
+async def run_link_page_scan() -> dict:
+    """检测所有友链页，发现新友链自动补进列表。"""
+    from app.services.link_page_service import scan_all_link_pages
+
+    results = await scan_all_link_pages()
+    total_added = sum(r.added for r in results)
+    failed = [r for r in results if r.error]
+    return {
+        "scanned": len(results),
+        "added": total_added,
+        "failed": len(failed),
+    }
 
 
 async def run_stats_snapshot() -> dict:

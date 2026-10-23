@@ -98,5 +98,15 @@ def site_hash(url: str) -> str:
     return hashlib.sha1(netloc.encode("utf-8")).hexdigest()
 
 
+def url_hash(url: str) -> str:
+    """完整 URL 的去重指纹，保留路径。
+
+    site_hash 只取主机名，适合「同一个博客只能加一次」；
+    但友链页是按完整地址区分的（同一个站点的 /friends/ 和 /links/
+    是两张不同的清单页），所以需要保留路径的版本。
+    """
+    return hashlib.sha1(normalize_url(url).encode("utf-8")).hexdigest()
+
+
 def valid_username(name: str) -> bool:
     return bool(re.fullmatch(r"[a-zA-Z0-9_.-]{3,32}", name))

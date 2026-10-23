@@ -36,6 +36,8 @@ TENANT_TABLES: frozenset[str] = frozenset(
         "site_tags",
         "blacklist",
         "ai_quota_logs",
+        # 关注的友链页——同样按用户隔离
+        "link_pages",
     }
 )
 

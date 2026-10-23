@@ -245,6 +245,28 @@ async def settings_page(
     return render(request, "settings.html", ctx)
 
 
+@router.get("/link-pages", include_in_schema=False)
+async def link_pages_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_user)],
+) -> Response:
+    """友链页管理。"""
+    from app.models import LinkPage
+
+    pages = (
+        await db.execute(
+            select(LinkPage)
+            .where(LinkPage.user_id == user.id)
+            .order_by(LinkPage.created_at.desc())
+        )
+    ).scalars().all()
+
+    ctx = await _page_context(request, user, await nav_counts(db), "link-pages")
+    ctx.update(link_pages=pages)
+    return render(request, "link_pages.html", ctx)
+
+
 # ---- 认证页面 ----
 
 

@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # 放小时级而不是每天——文章流是滚动的，新文章要尽快有摘要，
     # 否则用户点开看到的还是「待摘要」。
     ai_cron: str = "0 * * * *"
+    # 友链页检测任务，每天 5 点。
+    # 友链变动很慢（一个月加一两个朋友是常态），
+    # 每天一次足够，也省得频繁去打扰对方的站。
+    link_page_cron: str = "0 5 * * *"
     scheduler_enabled: bool = True
 
     # ---- 缓存 ----
