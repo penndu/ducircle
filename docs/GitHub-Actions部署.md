@@ -1,9 +1,14 @@
-# GitHub Actions 自动部署
+# 构建与部署
 
 服务器内存只有 1.7G，在上面 `docker build` 容易 OOM。
 所以构建放在 GitHub Actions，产物推到 Docker Hub，服务器只负责拉取。
 
-顺带得到一个保证：**构建不过就不会部署**，坏版本上不了线。
+**构建自动，部署手动。** 这样做的原因：自动部署意味着 SSH 私钥
+要放进 GitHub Secrets —— 一旦泄露，攻击者能以 root 登进服务器。
+而这台机器上还跑着 artalk、memos、phpmyadmin 等服务，牵连面太大。
+手动部署用本机密钥，风险可控得多。
+
+顺带得到一个保证：**构建不过就没有镜像可拉**，坏版本上不了线。
 
 ---
 
@@ -34,61 +39,15 @@
 |---|---|
 | `DOCKERHUB_USERNAME` | `penndu` |
 | `DOCKERHUB_TOKEN` | 上一步复制的 Access Token |
-| `SERVER_HOST` | `www.dusays.com` |
-| `SERVER_USER` | `root` |
-| `SERVER_SSH_KEY` | 见下一节 |
+
+**就这两个，不需要任何服务器相关的密钥。**
+
+这是相比自动部署最大的好处：GitHub 里不存私钥。
+部署用本机的 `ssh dusays`，不走 GitHub。
 
 ---
 
-## ⚠️ 关于 SSH 私钥的安全性
-
-把本机 `~/.ssh/id_ed25519` 的私钥放进 GitHub Secrets 有泄露风险——
-一旦泄露，攻击者能用你的身份登进这台服务器（root 权限）。
-这台机器上还跑着 artalk、memos、phpmyadmin 等服务。
-
-**推荐做法：生成一对专用于部署的密钥。**
-
-### 在服务器上（先做）
-
-```bash
-ssh dusays 'mkdir -p ~/.ssh && ssh-keygen -t ed25519 -f ~/.ssh/github_actions -N "" -C "github-actions-deploy"'
-```
-
-### 在 GitHub 上添加 deploy key
-
-**Settings → Deploy keys → Add deploy key** → Title 填 `github-actions` → Add key
-
-粘贴服务器上这个命令的输出：
-
-```bash
-ssh dusays 'cat ~/.ssh/github_actions.pub'
-```
-
-> ⚠️ **不要勾 "Allow write access"** —— 部署只需要拉代码。
-> 服务器上的代码目录由 Actions 手动 `git pull`，不需要 push 权限。
-
-### 取私钥内容填进 Secrets
-
-```bash
-ssh dusays 'cat ~/.ssh/github_actions'
-```
-
-把输出粘到 `SERVER_SSH_KEY`。
-
-这样即使这个私钥泄露，攻击者只能拉代码，不能登进服务器。
-
-### 部署完后可以清掉服务器上的私钥
-
-Actions 每次部署都会重新写入 authorized_keys（appleboy/ssh-action 的行为），
-所以服务器上 `/root/.ssh/github_actions` 用完可以删：
-
-```bash
-ssh dusays 'rm -f ~/.ssh/github_actions'
-```
-
----
-
-## 3. 服务器上的 `.env`
+### 3. 服务器上的 `.env`
 
 ```bash
 ssh dusays
@@ -106,7 +65,7 @@ chmod 600 .env
 
 填入数据库与 Redis 密码（见部署清单第三节）。
 
-## 4. 容器接入网络
+### 4. 容器接入网络
 
 **这一步 1Panel 用户最容易漏。** 在 1Panel「容器」页面，
 给应用容器加入 MySQL 和 Redis 所在的网络：
@@ -124,7 +83,7 @@ docker exec ducircle getent hosts 1Panel-mysql-wQr4
 
 ## 首次部署
 
-推代码触发 Actions：
+### 1. 触发构建
 
 ```bash
 git commit --allow-empty -m "触发首次构建"
@@ -133,43 +92,69 @@ git push
 
 看进度：<https://github.com/penndu/ducircle/actions>
 
-Actions 跑完会自动 SSH 到服务器完成部署。
-
-### 手动跑一次（不想等 CI）
+### 2. 手动部署（等 Actions 变绿后）
 
 ```bash
 ssh dusays
 cd /opt/1panel/www/sites/ducircle.dusays.com/index
+
+git pull origin main
 docker compose -f deploy/docker-compose.yml pull
 docker compose -f deploy/docker-compose.yml up -d
 docker logs -f ducircle
 ```
 
+### 3. 确认版本
+
+```bash
+curl -s https://ducircle.dusays.com/health
+```
+
+`build` 字段应该是刚才那个时间戳标签。
+
 ---
 
 ## 日常更新
 
-配好后**只要 push 到 main**：
+**两步：push，然后 SSH 部署。**
 
 ```bash
+# 本机
 git commit -am "改动说明"
 git push
 ```
 
-Actions 自动：静态检查 → 跑测试 → 构建双架构镜像 → 推 Docker Hub
-→ SSH 到服务器 pull → 重启 → 健康检查。
+等 Actions 变绿后：
 
-看进度：<https://github.com/penndu/ducircle/actions>
+```bash
+# 服务器
+ssh dusays 'cd /opt/1panel/www/sites/ducircle.dusays.com/index && \
+  git pull origin main && \
+  IMAGE_TAG=<Actions 里显示的版本号> docker compose -f deploy/docker-compose.yml pull && \
+  IMAGE_TAG=<版本号> docker compose -f deploy/docker-compose.yml up -d'
+```
 
-### 部署失败时
+或者去 <https://github.com/penndu/ducircle/actions> 看版本号，
+再手动 SSH 操作。
 
-Actions 会失败并把服务器上的日志带回来。常见原因：
+### 构建失败时
+
+Actions 会失败并把诊断信息显示在运行页面的「输出诊断信息」里：
 
 | 现象 | 原因 |
 |---|---|
-| `No module named pymysql` | 依赖缺失（已修过，加新依赖时注意） |
+| `No module named pymysql` | 依赖缺失（加新依赖时注意） |
+| `Readme file does not exist` | README.md 没被 Dockerfile COPY（`scripts/check_dockerignore.py` 会在提交前抓到）|
+| `Invalid workflow file` | workflow YAML 结构错（`scripts/check_workflow.py` 会在提交前抓到）|
+| `buildLog` 里 metadata-generation-failed | 看 build.log 里的 OSError 行 |
+
+服务器侧部署失败时：
+
+| 现象 | 原因 |
+|---|---|
 | 迁移失败，容器起不来 | 数据库连接问题，检查 `.env` 与容器网络 |
 | 健康检查失败 | 应用起来了但 /health 返回非 200，看日志里的数据库状态 |
+| 版本号不符 | 拉到了旧镜像，确认 IMAGE_TAG 写对了 |
 | `no space left on device` | 磁盘满了，`docker system prune -a` 清理 |
 
 ---
