@@ -62,6 +62,8 @@ jobs:
           python scripts/check_mysql_compat.py
           echo "--- .dockerignore 未排除构建必需文件 ---"
           python scripts/check_dockerignore.py
+          echo "--- workflow 结构 ---"
+          python scripts/check_workflow.py
 
       # 测试不过就不构建、不推送、不部署。
       # 这些测试抓到过3 个真 bug，其中一个是租户隔离的安全缺口。
@@ -178,14 +180,18 @@ jobs:
     steps:
       - name: 拉取并重启
         uses: appleboy/ssh-action@v1
+        # env 是步骤级字段，必须和 with 同级。
+        # 放在 with 下面会和 with 里的 script 冲突——
+        # with 要求全是「值是标量」的键，env 是嵌套对象，
+        # GitHub 会报 "A mapping was not expected"。
+        env:
+          VERSION_TAG: ${{ needs.build.outputs.tag }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           # set -e 让任何一步失败就停下——
           # 健康检查不过时不报告成功，Actions 标记为失败。
-          env:
-            VERSION_TAG: ${{ needs.build.outputs.tag }}
           script: |
             set -e
             cd /opt/1panel/www/sites/ducircle.dusays.com/index

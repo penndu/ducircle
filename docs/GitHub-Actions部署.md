@@ -182,21 +182,61 @@ Actions 会失败并把服务器上的日志带回来。常见原因：
 
 ## 镜像标签
 
-| 标签 | 用途 |
-|---|---|
-| `latest` | main 分支最新 |
-| `sha-<短哈希>` | 精确回滚 |
-| `main` | 分支名（与 latest 同步） |
+每次构建会推三个标签：
 
-**回滚**：
+| 标签 | 示例 | 用途 |
+|---|---|---|
+| 时间戳 | `202610221200` | 部署用，精确知道是哪个版本 |
+| `latest` | `latest` | 手动 `docker pull` 时的默认 |
+| commit sha | `f32f724` | 精确追溯某次提交 |
+
+时间戳用东八区（`TZ=Asia/Shanghai`），不是 UTC —— 否则
+日志里的时间会比本地早 8 小时，看新旧版本时容易误判。
+
+---
+
+## 版本验证
+
+部署完先看这个：
+
+```bash
+curl -s https://ducircle.dusays.com/health
+```
+
+```json
+{
+  "status": "ok",
+  "db": "ok",
+  "version": "0.1.0",
+  "build": "202610221200",
+  "built_at": "2026-10-22T12:00:00+08:00"
+}
+```
+
+`build` 字段就是当前的镜像版本。部署脚本会自动比对
+「实际运行版本」与「期望版本」，不一致直接报错退出。
+
+服务器上还存了一份：
+
+```bash
+ssh dusays 'cat /opt/1panel/www/sites/ducircle.dusays.com/index/.deployed-version'
+```
+
+---
+
+## 回滚
+
+改一个版本号就行，不用改文件：
 
 ```bash
 ssh dusays
 cd /opt/1panel/www/sites/ducircle.dusays.com/index
-# 改 compose 里的 image 为 sha-xxxxxxx
-docker compose -f deploy/docker-compose.yml pull
-docker compose -f deploy/docker-compose.yml up -d
+
+IMAGE_TAG=202610221150 docker compose -f deploy/docker-compose.yml pull
+IMAGE_TAG=202610221150 docker compose -f deploy/docker-compose.yml up -d
 ```
+
+`IMAGE_TAG` 不传时默认用 `latest`，所以平时不用管它。
 
 ---
 
