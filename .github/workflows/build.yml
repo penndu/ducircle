@@ -165,6 +165,41 @@ jobs:
             exit 1
           fi
 
+      # 把构建结果写到 commit 评论。
+      #
+      # 为什么要这么绕：Docker Hub 的 manifest 有 CDN 缓存，
+      # 短时间内 pull latest 可能拿到旧的 manifest（digest 不变）。
+      # 时间戳标签没有这个问题，但必须知道确切标签名——
+      # 写进 commit 评论后，服务器部署脚本就能读到它。
+      #
+      # commit 评论是公开的（仓库是公开的），不需要额外认证就能读。
+      - name: 记录构建结果
+        if: always()
+        env:
+          VERSION_TAG: ${{ steps.ver.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          DIGEST=$(docker images --digests ${{ env.IMAGE_NAME }}:latest \
+            --format "{{.Digest}}" 2>/dev/null | head -1)
+          BODY=$(printf '### 镜像构建\n\n- 版本标签: `%s`\n- 镜像 digest: `%s`\n- commit: `%s`\n\n部署命令：\n\n```bash\ncd /opt/1panel/www/sites/ducircle.dusays.com/index\ngit pull origin main\nIMAGE_TAG=%s docker compose -f deploy/docker-compose.yml pull\nIMAGE_TAG=%s docker compose -f deploy/docker-compose.yml up -d\n```' \
+            "$VERSION_TAG" "${DIGEST:-未知}" "${{ github.sha }}" \
+            "$VERSION_TAG" "$VERSION_TAG")
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -d "$(printf '{"body": %s}' "$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")" \
+            > /dev/null || echo "写 comment 失败（不影响构建）"
+
+          {
+            echo "### 构建结果"
+            echo ""
+            echo "- 版本标签: \`$VERSION_TAG\`"
+            echo "- digest: \`${DIGEST:-未知}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # 把关键错误写进 commit status / job summary。
       # artifact 需要认证才能下载，但 summary 在 Actions 页面
       # 免登录可见——排查时能直接看到，不用先配 token。
