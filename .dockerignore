@@ -41,9 +41,12 @@ data.db
 docs/
 scripts/
 tests/
-README.md
 
-# 静态资源由 Dockerfile 单独 COPY web/，不需要其他杂项
-*.md
+# 静态资源与杂项
 .DS_Store
-deploy/*.md
+
+# 注意：README.md 不能排除。
+# pyproject.toml 声明了 readme = "README.md"，
+# hatchling 构建时会校验文件存在，缺了就报
+#   OSError: Readme file does not exist
+# 这条卡了 CI 三轮才查出来。

@@ -57,6 +57,8 @@ jobs:
           python scripts/check_await_usage.py
           echo "--- MySQL 方言兼容性 ---"
           python scripts/check_mysql_compat.py
+          echo "--- .dockerignore 未排除构建必需文件 ---"
+          python scripts/check_dockerignore.py
 
       # 测试不过就不构建、不推送、不部署。
       # 这些测试抓到过3 个真 bug，其中一个是租户隔离的安全缺口。
