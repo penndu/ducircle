@@ -165,6 +165,12 @@ jobs:
             du -sh . 2>/dev/null || echo "(未知)"
             echo '```'
             echo ""
+            echo "### 推送的镜像（digest 是关键）"
+            echo '```'
+            grep -E "digest: sha256|pushing|pushed|exporting manifest" build.log \
+              | tail -12 || echo "(未找到 push 记录)"
+            echo '```'
+            echo ""
             echo "### 关键错误"
             echo '```'
             grep -iE "^ERROR|error:|OSError|Readme file|No matching|failed to solve|Traceback" build.log \
