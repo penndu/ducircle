@@ -13,6 +13,11 @@ services:
     # 这样回滚只要改一个版本号，不用改文件、不污染工作区。
     image: penndu/ducircle:${IMAGE_TAG:-latest}
     container_name: ducircle
+    # always：每次 up 都重新拉。
+    # 默认的 missing 策略只在本地没这个镜像时才拉——
+    # 本地有了 latest 就永远不更新，结果是「以为部署了新版本，
+    # 实际跑的还是旧镜像」。这个坑我踩过一次。
+    pull_policy: always
     restart: unless-stopped
     env_file: ../.env
     ports:

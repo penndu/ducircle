@@ -98,13 +98,16 @@ jobs:
           VERSION_TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -o pipefail
+          # --no-cache 不用 GHA 缓存。
+          # 之前用 type=gha 缓存时出现过「CI 显示成功，
+          # 但 Docker Hub 上的镜像没更新」的情况——
+          # 缓存命中导致跳过了实际构建。
+          # 构建时间只有 1 分多钟，不值得为缓存冒这个险。
           docker buildx build \
             --platform linux/amd64 \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --no-cache \
             --build-arg BUILD_VERSION="$VERSION_TAG" \
             --build-arg BUILD_TIME="$(TZ=Asia/Shanghai date -Iseconds)" \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
             -f deploy/Dockerfile \
             -t ${{ env.IMAGE_NAME }}:latest \
             -t ${{ env.IMAGE_NAME }}:"$VERSION_TAG" \
@@ -112,6 +115,41 @@ jobs:
             --push \
             --progress=plain . 2>&1 | tee build.log
         continue-on-error: true
+
+      # 从 Docker Hub 把刚推的镜像拉回来，验证内容确实是新的。
+      #
+      # 为什么要多这一步：之前出现过「CI 显示 Success，
+      # 但 Docker Hub 上的镜像没更新」——服务器 pull 下来的
+      # 还是旧代码，排查了很久才发现是构建缓存命中跳过了实际构建。
+      # 这一步把问题挡在 CI 阶段：拉回来检查 BUILD_VERSION
+      # 是不是本次的版本号。
+      - name: 验证推送的镜像
+        if: always()
+        env:
+          VERSION_TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          {
+            echo "### 推送验证"
+            echo ""
+            echo "构建版本: $VERSION_TAG"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # 拉回来，看容器里带的版本号对不对
+          if docker pull ${{ env.IMAGE_NAME }}:"$VERSION_TAG" 2>/dev/null; then
+            GOT=$(docker run --rm --entrypoint printenv \
+              ${{ env.IMAGE_NAME }}:"$VERSION_TAG" DUCIRCLE_VERSION 2>/dev/null)
+            echo "拉回来的镜像版本: ${GOT:-（读不到）}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GOT" = "$VERSION_TAG" ]; then
+              echo "✓ 镜像内容正确" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ 镜像版本不符：期望 $VERSION_TAG，实际 ${GOT:-未知}" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            echo "❌ 无法拉取 ${{ env.IMAGE_NAME }}:$VERSION_TAG" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       # 把关键错误写进 commit status / job summary。
       # artifact 需要认证才能下载，但 summary 在 Actions 页面
