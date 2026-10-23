@@ -107,14 +107,31 @@ jobs:
             --progress=plain . 2>&1 | tee build.log
         continue-on-error: true
 
-      # 无论成败都上传日志，这样失败时能看到完整输出
-      - name: 上传构建日志
+      # 把关键错误写进 commit status / job summary。
+      # artifact 需要认证才能下载，但 summary 在 Actions 页面
+      # 免登录可见——排查时能直接看到，不用先配 token。
+      - name: 输出诊断信息
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
-          retention-days: 7
+        run: |
+          {
+            echo "## 构建诊断"
+            echo ""
+            echo "### 上下文大小"
+            echo '```'
+            du -sh . 2>/dev/null || echo "(未知)"
+            echo '```'
+            echo ""
+            echo "### 关键错误"
+            echo '```'
+            grep -iE "^ERROR|error:|OSError|Readme file|No matching|failed to solve|Traceback" build.log \
+              | grep -v "^#" | head -25 || echo "(未匹配到错误行)"
+            echo '```'
+            echo ""
+            echo "### 最后 20 行"
+            echo '```'
+            tail -20 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # 上一步用了 continue-on-error，这里必须显式判定，
       # 否则构建失败也会标记为成功并继续部署——那会部署出坏镜像。
