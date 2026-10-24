@@ -46,6 +46,17 @@ class NoTenantFilter:
     """上下文管理器：临时关闭租户过滤。
 
     仅供确实需要跨用户操作的后台任务使用，例如管理员统计全站数据。
+
+    同时实现同步与异步两套协议（__enter__/__exit__ 和
+    __aenter__/__aexit__），这样 `with no_tenant_filter():` 和
+    `async with no_tenant_filter():` 都能用。
+
+    为什么要两套协议都支持：ContextVar 的 set/reset 本身是同步的，
+    不需要 await，所以同一个对象完全可以同时服务两种写法。
+    而只实现一套时，误用另一套会在运行期抛
+    TypeError: '_GeneratorContextManager' object does not support
+    the asynchronous context manager protocol——
+    这个错误曾让所有后台定时任务静默失败。
     """
 
 
@@ -65,6 +76,23 @@ def no_tenant_filter() -> Iterator[None]:
     例：
         with no_tenant_filter():
             total = session.query(Site).count()
+
+    异步代码里请用 no_tenant_filter_async()。
+    """
+    token = _tenant_bypass.set(True)
+    try:
+        yield
+    finally:
+        _tenant_bypass.reset(token)
+
+
+@asynccontextmanager
+async def no_tenant_filter_async():
+    """异步版 no_tenant_filter。
+
+    异步代码里必须用这个——用同步的 no_tenant_filter() 配 `async with`
+    会抛 TypeError，而且异常往往被后台任务的 except 吞掉，
+    表现为「任务显示成功但什么都没发生」。
     """
     token = _tenant_bypass.set(True)
     try:

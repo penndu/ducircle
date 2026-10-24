@@ -71,8 +71,6 @@ async def trigger_crawl(
     if site.active is False:
         raise HTTPException(status_code=400, detail="站点已停用，请先启用")
 
-    from app.services.crawl_service import crawl_single_site
-
     background.add_task(_run_crawl, user.id, site_id)
 
     return CrawlTriggerResponse(
@@ -101,7 +99,11 @@ async def _run_crawl(user_id: int, site_id: int) -> None:
 async def trigger_crawl_all(
     user: CurrentUserSession, background: BackgroundTasks
 ) -> CrawlTriggerResponse:
-    """触发我的全部站点抓取（只抓我自己名下的）。"""
+    """触发我的全部站点抓取（只抓我自己名下的）。
+
+    force=True 跳过 cron 频率门槛——用户点了按钮就是明确意图，
+    不该因为「还没到自动抓取时间」而什么都不发生。
+    """
     from app.services.crawl_service import crawl_all_pending
 
     async def _run() -> None:
@@ -109,7 +111,11 @@ async def trigger_crawl_all(
 
         logger = logging.getLogger("ducircle.admin")
         try:
-            await crawl_all_pending()
+            result = await crawl_all_pending(force=True)
+            logger.info(
+                "手动批量抓取完成：抓取 %d 个站点，新增 %d 篇",
+                result.get("crawled", 0), result.get("new_posts", 0),
+            )
         except Exception:  # noqa: BLE001
             logger.exception("手动批量抓取失败")
 

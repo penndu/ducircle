@@ -199,10 +199,33 @@ class Crawler:
                 continue
         return None
 
+    async def load_rules(self, session, site: Site) -> CustomRuleSet | None:
+        """加载站点的自定义规则。需要数据库会话。"""
+        if not self.settings.enable_custom_rules:
+            return None
+        stmt = (
+            select(SiteRule)
+            .where(SiteRule.site_id == site.id, SiteRule.enabled.is_(True))
+        )
+        rules = (await session.execute(stmt)).scalars().all()
+        return CustomRuleSet(rules) if rules else None
+
     async def crawl_site_with_rules(
         self, session, site: Site
     ) -> CrawlResult:
         """针对数据库中的站点执行抓取，含自定义规则优先与结果落库。"""
+        rules = await self.load_rules(session, site)
+        return await self.crawl_site_with_loaded_rules(site, rules)
+
+    async def crawl_site_with_loaded_rules(
+        self, site: Site, rules: CustomRuleSet | None
+    ) -> CrawlResult:
+        """用**已加载好**的规则抓取站点。
+
+        与 crawl_site_with_rules 的区别是不需要数据库会话——
+        这样抓取（网络 IO，可能几十秒）期间不会占着数据库连接。
+        批量抓取几十个站点时，这是连接池不被撑爆的关键。
+        """
         started = time.monotonic()
 
         if not await self._acquire():
@@ -211,8 +234,6 @@ class Crawler:
             )
 
         try:
-            rules = await self._load_rules(session, site)
-
             # 第 0 层：用户规则优先。配了就完全信任，失败也不静默降级——
             # 明确记日志，让用户看到自己的规则哪里不对。
             if rules is not None and rules.has_rules():
@@ -265,14 +286,8 @@ class Crawler:
         )
 
     async def _load_rules(self, session, site: Site) -> CustomRuleSet | None:
-        if not self.settings.enable_custom_rules:
-            return None
-        stmt = (
-            select(SiteRule)
-            .where(SiteRule.site_id == site.id, SiteRule.enabled.is_(True))
-        )
-        rules = (await session.execute(stmt)).scalars().all()
-        return CustomRuleSet(rules) if rules else None
+        """兼容旧调用点。"""
+        return await self.load_rules(session, site)
 
     async def _acquire(self) -> bool:
         if self._redis is None:

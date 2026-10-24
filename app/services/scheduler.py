@@ -53,6 +53,29 @@ async def _run_locked(name: str, coro_factory) -> None:
             logger.exception("任务 %s 执行失败", name)
 
 
+def _job(name: str, coro_factory):
+    """把「加锁执行」包成一个真正的协程函数交给 APScheduler。
+
+    **必须返回 `async def`，不能返回 lambda。**
+
+    APScheduler 用 `iscoroutinefunction_partial()` 判断 job.func 是不是
+    协程函数：不是的话，它会把调用丢到线程池的 `run_in_executor` 里，
+    而线程池无法 await 协程——协程对象被创建出来就扔掉了，
+    任务主体从未执行。
+
+    而 APScheduler 那边看到的只是「调用没有抛异常」，
+    于是照样打印 "Job ... executed successfully"。
+    结果就是：日志一片绿，功能全没跑。
+
+    这个坑非常隐蔽——只有「任务从没产出过数据」才暴露得出来。
+    """
+    async def _runner() -> None:
+        await _run_locked(name, coro_factory)
+
+    _runner.__name__ = f"locked_{name}"
+    return _runner
+
+
 async def start_scheduler() -> AsyncIOScheduler:
     """注册并启动所有定时任务。"""
     settings = get_settings()
@@ -70,7 +93,7 @@ async def start_scheduler() -> AsyncIOScheduler:
         # 而 APScheduler 的 job 数量上限是有限的。
         # 「高频检查 + 按用户过滤」更简单，也不用重启调度器。
         scheduler.add_job(
-            lambda: _run_locked("daily-crawl", run_crawl_all),
+            _job("daily-crawl", run_crawl_all),
             _cron("*/5 * * * *"),
             id="crawl_all",
             name="定时抓取",
@@ -82,7 +105,7 @@ async def start_scheduler() -> AsyncIOScheduler:
         )
 
         scheduler.add_job(
-            lambda: _run_locked("cleanup", run_cleanup),
+            _job("cleanup", run_cleanup),
             _cron(settings.cleanup_cron),
             id="cleanup",
             name="过期数据清理",
@@ -93,7 +116,7 @@ async def start_scheduler() -> AsyncIOScheduler:
         )
 
         scheduler.add_job(
-            lambda: _run_locked("ai-summary", run_ai_summaries),
+            _job("ai-summary", run_ai_summaries),
             _cron(settings.ai_cron),
             id="ai_summary",
             name="AI 摘要生成",
@@ -105,7 +128,7 @@ async def start_scheduler() -> AsyncIOScheduler:
 
         # 同样每 5 分钟检查一次，由用户的 link_page_cron 决定
         scheduler.add_job(
-            lambda: _run_locked("link-pages", run_link_page_scan),
+            _job("link-pages", run_link_page_scan),
             _cron("*/5 * * * *"),
             id="link_page_scan",
             name="友链页检测",
@@ -116,7 +139,7 @@ async def start_scheduler() -> AsyncIOScheduler:
         )
 
         scheduler.add_job(
-            lambda: _run_locked("stats", run_stats_snapshot),
+            _job("stats", run_stats_snapshot),
             _cron(settings.stats_cron),
             id="stats",
             name="统计快照",

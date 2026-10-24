@@ -18,7 +18,7 @@ from sqlalchemy import func, select, update
 
 from app.core.config import get_settings
 from app.core.ratelimit import RedisManager, Semaphore
-from app.core.tenant import as_tenant_async, no_tenant_filter
+from app.core.tenant import as_tenant_async, no_tenant_filter_async
 from app.db import session_scope
 from app.models import CrawlLog, Post, Site, User
 from app.parser.base import CrawlResult
@@ -28,7 +28,25 @@ from app.core.sql_compat import asc_nulls_first
 logger = logging.getLogger("ducircle.crawl")
 
 
-async def crawl_all_pending(max_sites: int | None = None) -> dict:
+class _DetachedSite:
+    """脱离 ORM 会话的站点快照。
+
+    抓取阶段（网络 IO，可能几十秒）不应该占着数据库连接，
+    所以把站点信息抄成这个轻量对象带着走，落库时再重新查一次。
+    """
+
+    __slots__ = ("id", "name", "url", "user_id")
+
+    def __init__(self, site_id: int, name: str, url: str, user_id: int) -> None:
+        self.id = site_id
+        self.name = name
+        self.url = url
+        self.user_id = user_id
+
+
+async def crawl_all_pending(
+    max_sites: int | None = None, force: bool = False
+) -> dict:
     """抓取所有用户所有到期站点。
 
     用 as_tenant_async 逐用户切换上下文，让 ORM 钩子自动做隔离——
@@ -40,12 +58,17 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
     多久抓一次（cron 表达式），这里只抓「到点了」的用户。
     调度器每 5 分钟调一次这个函数，具体频率判断在
     app/core/cron.py 的 should_run_now()。
+
+    **force=True 时跳过频率判断**——用户手动点「立即抓取」时用。
+    手动是明确意图，不该被 cron 门槛拦下：
+    用户在 15:57 点按钮，但 cron 是「每天 4 点」，
+    should_run_now 会返回 False，于是点了跟没点一样。
     """
     settings = get_settings()
     now = datetime.now()
 
     # 系统级查询：跨用户，需要显式豁免
-    async with session_scope() as db, no_tenant_filter():
+    async with session_scope() as db, no_tenant_filter_async():
         users = (
             await db.execute(
                 select(
@@ -64,8 +87,8 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
     executed = 0
 
     for user_id, user_cron, last_crawl_at in users:
-        # 到点了才抓
-        if not should_run_now(
+        # 到点了才抓；手动触发（force）时无视频率门槛
+        if not force and not should_run_now(
             user_cron, last_crawl_at, now, default=settings.crawl_cron
         ):
             continue
@@ -74,7 +97,9 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
         try:
             async with as_tenant_async(user_id):
                 result = await _crawl_user_sites(
-                    db_factory=session_scope, user_id=user_id
+                    db_factory=session_scope,
+                    user_id=user_id,
+                    force=force,
                 )
             # 记录执行时间，下次按这个判断
             await _mark_crawled(user_id, now)
@@ -85,41 +110,56 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
         total_new += result["new_posts"]
 
     logger.info(
-        "定时抓取完成：%d/%d 个用户到点，%d 个站点，新增 %d 篇文章",
+        "抓取完成：%d/%d 个用户执行，%d 个站点，新增 %d 篇文章%s",
         executed, len(users), total_crawled, total_new,
+        "（手动强制）" if force else "",
     )
     return {
         "users": len(users),
         "executed": executed,
         "crawled": total_crawled,
         "new_posts": total_new,
+        "forced": force,
     }
 
 
 async def _mark_crawled(user_id: int, when: datetime) -> None:
     """记录用户的抓取执行时间。"""
-    async with session_scope() as db, no_tenant_filter():
+    async with session_scope() as db, no_tenant_filter_async():
         await db.execute(
             update(User).where(User.id == user_id).values(last_crawl_at=when)
         )
         await db.commit()
 
 
-async def _crawl_user_sites(db_factory, user_id: int) -> dict:
-    """抓一个用户的所有到期站点。"""
+async def _crawl_user_sites(
+    db_factory, user_id: int, force: bool = False
+) -> dict:
+    """抓一个用户的所有到期站点。
+
+    **每个站点用独立的数据库会话**——AsyncSession 不是线程/协程安全的，
+    几十个站点共用一个 session 并发写会互相踩踏。
+    """
     settings = get_settings()
 
     async with db_factory() as db:
-        # 上次成功后经过足够间隔的站点才抓，避免重复打扰对方服务器
-        cutoff = datetime.now() - timedelta(minutes=settings.crawl_min_interval // 60)
-        stmt = (
-            select(Site)
-            .where(
-                Site.active.is_(True),
-                (Site.last_crawled_at.is_(None)) | (Site.last_crawled_at < cutoff),
+        stmt = select(Site).where(Site.active.is_(True))
+
+        if not force:
+            # 上次抓过且间隔不够的站点先跳过，避免重复打扰对方服务器。
+            # force（手动触发）时不跳过——用户明确要求现在就抓。
+            cutoff = datetime.now() - timedelta(
+                minutes=settings.crawl_min_interval // 60
             )
-            .order_by(Site.asc_nulls_first(last_crawled_at))
-        )
+            stmt = stmt.where(
+                (Site.last_crawled_at.is_(None)) | (Site.last_crawled_at < cutoff)
+            )
+        else:
+            # 手动触发时也要跳过彻底不活跃的僵尸站点
+            pass
+
+        stmt = stmt.order_by(Site.asc_nulls_first(last_crawled_at))
+
         if settings.outdate_clean_days:
             # 彻底不活跃的站点先跳过，把资源留给还在更新的
             zombie_cutoff = datetime.now() - timedelta(days=settings.outdate_clean_days * 3)
@@ -136,7 +176,10 @@ async def _crawl_user_sites(db_factory, user_id: int) -> dict:
 
         async with Crawler(settings, redis=redis) as crawler:
             results = await _run_bounded(
-                [_crawl_one(crawler, db, site, redis, per_user) for site in sites]
+                [
+                    _crawl_one(crawler, db_factory, site.id, redis, per_user)
+                    for site in sites
+                ]
             )
 
         crawled = sum(1 for r in results if r["status"] == "success")
@@ -145,39 +188,61 @@ async def _crawl_user_sites(db_factory, user_id: int) -> dict:
 
 
 async def _crawl_one(
-    crawler: Crawler, db, site: Site, redis, per_user: Semaphore
+    crawler: Crawler, db_factory, site_id: int, redis, per_user: Semaphore
 ) -> dict:
-    """抓取单个站点。每个站点独立事务，单站失败不影响其他站点。"""
+    """抓取单个站点。每个站点独立会话、独立事务，单站失败不影响其他站点。"""
     if not await per_user.acquire(redis):
         return {"status": "skipped", "new_posts": 0}
 
     try:
-        result = await crawler.crawl_site_with_rules(db, site)
-        new_posts = await save_crawl_result(db, site, result)
-        await db.commit()
+        # 第一段：读站点与规则（短会话）
+        async with db_factory() as db:
+            site = (
+                await db.execute(select(Site).where(Site.id == site_id))
+            ).scalar_one_or_none()
+            if site is None:
+                return {"status": "skipped", "new_posts": 0}
+            rules = await crawler.load_rules(db, site)
+            site_url = site.url
+            site_name = site.name
+            site_user_id = site.user_id
+
+        # 第二段：真正抓取（网络 IO，不占用数据库连接）
+        result = await crawler.crawl_site_with_loaded_rules(
+            _DetachedSite(site_id, site_name, site_url, site_user_id), rules
+        )
+
+        # 第三段：落库（短会话）
+        async with db_factory() as db:
+            site = (
+                await db.execute(select(Site).where(Site.id == site_id))
+            ).scalar_one_or_none()
+            if site is None:
+                return {"status": "skipped", "new_posts": 0}
+            new_posts = await save_crawl_result(db, site, result)
+            await db.commit()
 
         if result.status == "success":
             logger.info(
                 "站点 %s 抓取成功（%s），新增 %d 篇",
-                site.name, result.strategy, new_posts,
+                site_name, result.strategy, new_posts,
             )
         else:
             logger.warning(
-                "站点 %s 抓取失败：%s", site.name, result.error or "未知原因"
+                "站点 %s 抓取失败：%s", site_name, result.error or "未知原因"
             )
 
         return {"status": result.status, "new_posts": new_posts}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("站点 %s 抓取异常", site.name)
+        logger.exception("站点 %s 抓取异常", site_id)
         # 抓取本身崩了也要落一条失败日志，否则后台看不到
-        await db.rollback()
         try:
-            async with session_scope() as log_db, as_tenant_async(site.user_id):
+            async with session_scope() as log_db, as_tenant_async(site_user_id):
                 log_db.add(
                     CrawlLog(
-                        user_id=site.user_id,
-                        site_id=site.id,
-                        site_url=site.url,
+                        user_id=site_user_id,
+                        site_id=site_id,
+                        site_url=site_url,
                         status="failed",
                         error=f"{type(exc).__name__}: {exc}",
                     )
@@ -209,21 +274,43 @@ async def _run_bounded(coros: list) -> list:
 
 
 async def crawl_single_site(user_id: int, site_id: int) -> CrawlResult:
-    """手动触发抓取单个站点。后台的「立即抓取」按钮走这里。"""
+    """手动触发抓取单个站点。后台的「立即抓取」按钮走这里。
+
+    同样分三段（读站点 → 抓取 → 落库），
+    避免网络 IO 期间占着数据库连接。
+    """
     settings = get_settings()
     redis = RedisManager.instance().client
 
+    async with Crawler(settings, redis=redis) as crawler:
+        # 第一段：读站点与规则
+        async with session_scope() as db, as_tenant_async(user_id):
+            site = (
+                await db.execute(select(Site).where(Site.id == site_id))
+            ).scalar_one_or_none()
+            if site is None:
+                raise ValueError("站点不存在")
+
+            rules = await crawler.load_rules(db, site)
+            site_url = site.url
+            site_name = site.name
+
+        # 第二段：抓取（网络 IO，不占数据库连接）
+        result = await crawler.crawl_site_with_loaded_rules(
+            _DetachedSite(site_id, site_name, site_url, user_id), rules
+        )
+
+    # 第三段：落库
     async with session_scope() as db, as_tenant_async(user_id):
         site = (
             await db.execute(select(Site).where(Site.id == site_id))
         ).scalar_one_or_none()
         if site is None:
             raise ValueError("站点不存在")
+        await save_crawl_result(db, site, result)
+        await db.commit()
 
-        async with Crawler(settings, redis=redis) as crawler:
-            result = await crawler.crawl_site_with_rules(db, site)
-            await save_crawl_result(db, site, result)
-            return result
+    return result
 
 
 async def cleanup_expired() -> dict:
@@ -234,7 +321,7 @@ async def cleanup_expired() -> dict:
 
     cutoff = datetime.now() - timedelta(days=settings.outdate_clean_days)
 
-    async with session_scope() as db, no_tenant_filter():
+    async with session_scope() as db, no_tenant_filter_async():
         # 只删软删除超过 7 天的记录，保留窗口给误删恢复
         purge_cutoff = datetime.now() - timedelta(days=7)
 
@@ -289,7 +376,7 @@ async def build_stats_snapshot() -> dict:
     """
     from app.services.stats_cache import save_snapshot
 
-    async with session_scope() as db, no_tenant_filter():
+    async with session_scope() as db, no_tenant_filter_async():
         snapshot = await compute_global_stats(db)
     await save_snapshot(snapshot)
     return snapshot

@@ -264,14 +264,14 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
 
 async def summarize_all_pending(limit_per_user: int = 10) -> dict:
     """定时任务：为所有用户生成待处理文章的摘要。"""
-    from app.core.tenant import no_tenant_filter
+    from app.core.tenant import no_tenant_filter_async
 
     settings = get_settings()
     if not settings.ai_enabled or not settings.ai_platform_api_key:
         logger.info("平台未配置 AI，跳过摘要任务")
         return {"users": 0, "generated": 0, "quota_exceeded_users": 0}
 
-    async with session_scope() as db, no_tenant_filter():
+    async with session_scope() as db, no_tenant_filter_async():
         users = (
             await db.execute(select(User.id).where(User.is_active.is_(True)))
         ).scalars().all()
