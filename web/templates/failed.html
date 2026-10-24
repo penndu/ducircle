@@ -125,11 +125,40 @@ async function crawlAgain(id, btn) {
   try {
     await api(`/api/admin/sites/${id}/crawl`, { method: 'POST' });
     showToast('已触发重试');
-    setTimeout(() => location.reload(), 2500);
+    pollCrawlStatus(btn);
   } catch (e) {
     showToast(e.message, false);
     btn.disabled = false;
     btn.textContent = '重试';
   }
+}
+
+// 等后台任务真正结束再刷新，如实反馈结果
+async function pollCrawlStatus(btn, tries = 0) {
+  if (tries > 60) {
+    showToast('抓取仍在进行，稍后刷新页面查看', false);
+    btn.disabled = false;
+    btn.textContent = '重试';
+    return;
+  }
+  try {
+    const s = await api('/api/admin/crawl-status');
+    if (s.state === 'running') {
+      setTimeout(() => pollCrawlStatus(btn, tries + 1), 2000);
+      return;
+    }
+    if (s.state === 'failed') {
+      showToast('抓取失败：' + (s.error || '未知原因'), false);
+      btn.disabled = false;
+      btn.textContent = '重试';
+      return;
+    }
+    if (s.state === 'done') {
+      showToast('重试完成：新增 ' + (s.new_posts || 0) + ' 篇');
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
+  } catch (e) { /* 状态查询失败不打扰用户 */ }
+  setTimeout(() => pollCrawlStatus(btn, tries + 1), 3000);
 }
 {% endblock %}

@@ -158,7 +158,7 @@ async def _crawl_user_sites(
             # 手动触发时也要跳过彻底不活跃的僵尸站点
             pass
 
-        stmt = stmt.order_by(Site.asc_nulls_first(last_crawled_at))
+        stmt = stmt.order_by(asc_nulls_first(Site.last_crawled_at))
 
         if settings.outdate_clean_days:
             # 彻底不活跃的站点先跳过，把资源留给还在更新的

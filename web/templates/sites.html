@@ -292,12 +292,43 @@ async function crawlNow(id, btn) {
   try {
     const data = await api(`/api/admin/sites/${id}/crawl`, { method: 'POST' });
     showToast(data.message || '已触发');
-    setTimeout(() => location.reload(), 2000);
+    pollCrawlStatus(id, btn);
   } catch (e) {
     showToast(e.message, false);
     btn.disabled = false;
     btn.textContent = '抓取';
   }
+}
+
+// 等后台任务真正跑完再刷新，并如实反馈结果。
+// 之前固定 2 秒后刷新——抓取慢的时候页面还是旧数据，
+// 用户会以为「点了没反应」。
+async function pollCrawlStatus(id, btn, tries = 0) {
+  if (tries > 60) {
+    showToast('抓取仍在进行，稍后刷新页面查看', false);
+    btn.disabled = false;
+    btn.textContent = '抓取';
+    return;
+  }
+  try {
+    const s = await api('/api/admin/crawl-status');
+    if (s.state === 'running') {
+      setTimeout(() => pollCrawlStatus(id, btn, tries + 1), 2000);
+      return;
+    }
+    if (s.state === 'failed') {
+      showToast('抓取失败：' + (s.error || '未知原因'), false);
+      btn.disabled = false;
+      btn.textContent = '抓取';
+      return;
+    }
+    if (s.state === 'done') {
+      showToast('抓取完成：新增 ' + (s.new_posts || 0) + ' 篇');
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
+  } catch (e) { /* 状态查询失败不打扰用户 */ }
+  setTimeout(() => pollCrawlStatus(id, btn, tries + 1), 3000);
 }
 
 async function removeSite(id, name) {

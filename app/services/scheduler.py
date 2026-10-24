@@ -208,9 +208,13 @@ async def run_link_page_scan() -> dict:
     和 run_crawl_all 同样的逻辑：调度器每 5 分钟调一次，
     内部按用户的 link_page_cron 判断该不该跑。
     """
+    from app.db import session_scope
     from app.services.link_page_service import scan_all_link_pages
 
-    results = await scan_all_link_pages()
+    # scan_all_link_pages 需要数据库会话——调度器不是请求上下文，
+    # 得自己开一个。
+    async with session_scope() as db:
+        results = await scan_all_link_pages(db)
     total_added = sum(r.added for r in results)
     failed = [r for r in results if r.error]
     return {

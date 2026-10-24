@@ -79,20 +79,48 @@ async def trigger_crawl(
 
 
 async def _run_crawl(user_id: int, site_id: int) -> None:
-    """后台抓取。异常在这里被吞掉——没人接收返回值，抛出只会污染日志。"""
+    """后台抓取。异常在这里被吞掉——没人接收返回值，抛出只会污染日志。
+
+    但失败要写进状态里：不然用户点了「抓取」，
+    刷新页面看到还是 0 篇，会以为按钮坏了。
+    """
     import logging
 
     logger = logging.getLogger("ducircle.admin")
     from app.services.crawl_service import crawl_single_site
+    from app.services.crawl_status import set_status
 
+    await set_status(
+        user_id, {"state": "running", "crawled": 0, "new_posts": 0, "failed": 0}
+    )
     try:
         result = await crawl_single_site(user_id, site_id)
+        await set_status(
+            user_id,
+            {
+                "state": "done",
+                "crawled": 1 if result.status == "success" else 0,
+                "new_posts": result.post_count or 0,
+                "failed": 0 if result.status == "success" else 1,
+                "error": result.error,
+            },
+        )
         logger.info(
             "手动抓取完成：site=%d status=%s strategy=%s posts=%d",
             site_id, result.status, result.strategy, result.post_count,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception("手动抓取失败：site=%d", site_id)
+        await set_status(
+            user_id,
+            {
+                "state": "failed",
+                "crawled": 0,
+                "new_posts": 0,
+                "failed": 1,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+        )
 
 
 @router.post("/crawl/all", response_model=CrawlTriggerResponse, summary="立即抓取全部站点")
@@ -110,17 +138,57 @@ async def trigger_crawl_all(
         import logging
 
         logger = logging.getLogger("ducircle.admin")
+        from app.services.crawl_status import set_status
+
+        await set_status(
+            user.id, {"state": "running", "crawled": 0, "new_posts": 0, "failed": 0}
+        )
         try:
             result = await crawl_all_pending(force=True)
+            await set_status(
+                user.id,
+                {
+                    "state": "done",
+                    "crawled": result.get("crawled", 0),
+                    "new_posts": result.get("new_posts", 0),
+                    "failed": 0,
+                },
+            )
             logger.info(
                 "手动批量抓取完成：抓取 %d 个站点，新增 %d 篇",
                 result.get("crawled", 0), result.get("new_posts", 0),
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            # 失败必须让用户看得见——否则又是「点了没反应」
             logger.exception("手动批量抓取失败")
+            await set_status(
+                user.id,
+                {
+                    "state": "failed",
+                    "crawled": 0,
+                    "new_posts": 0,
+                    "failed": 1,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
 
     background.add_task(_run)
     return CrawlTriggerResponse(ok=True, message="已触发全部站点抓取")
+
+
+@router.get("/crawl-status", summary="最近一次抓取的状态")
+async def crawl_status(user: CurrentUserSession) -> dict:
+    """手动抓取的进度与结果。
+
+    前端轮询这个接口告诉用户「跑到哪了、成不成功」，
+    而不是只显示一句「已触发」就让人干等。
+    """
+    from app.services.crawl_status import get_status
+
+    status = await get_status(user.id)
+    if status is None:
+        return {"state": "idle"}
+    return status
 
 
 @router.get(
