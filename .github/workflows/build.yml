@@ -66,6 +66,8 @@ jobs:
           python scripts/check_mysql_sql.py
           echo "--- 后台任务静默失败检查 ---"
           python scripts/check_background_tasks.py
+          echo "--- 未定义名字检查 ---"
+          python scripts/check_undefined_names.py
 
       # 测试不过就不构建、不推送、不部署。
       # 这些测试抓到过3 个真 bug，其中一个是租户隔离的安全缺口。

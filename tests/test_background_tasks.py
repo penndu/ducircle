@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -92,6 +93,76 @@ class TestSchedulerJobIsCoroutine:
 
         assert iscoroutinefunction_partial(dummy) is True
         assert iscoroutinefunction_partial(lambda: dummy()) is False
+
+
+class TestLinkPageServiceImports:
+    """友链页服务必须导入它用到的模型。"""
+
+    def test_user_model_is_imported(self):
+        """scan_all_link_pages 用到 User，必须在模块顶部导入。
+
+        漏导入时只有调度任务真正执行到那行才会炸：
+        NameError: name 'User' is not defined。
+        """
+        from app.services import link_page_service
+
+        assert hasattr(link_page_service, "User"), (
+            "link_page_service 用到了 User 但没导入——"
+            "定时友链页检测会抛 NameError"
+        )
+
+
+class TestUndefinedNameChecker:
+    """未定义名字检查脚本本身要可靠。"""
+
+    def test_script_passes_on_current_code(self):
+        """当前代码不应有未定义名字。"""
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "scripts/check_undefined_names.py"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            f"未定义名字检查未通过：\n{result.stdout}"
+        )
+
+    def test_script_detects_missing_import(self):
+        """脚本必须能抓到漏导入——用一个内存里的 AST 验证。
+
+        不用 tmp_path：某些沙箱环境下 pytest 的临时目录不可写，
+        而这个检查用 AST 就够了，不需要真实文件。
+        """
+        import ast
+
+        sys.path.insert(0, str(ROOT))
+        from scripts.check_undefined_names import FileScope, collect
+
+        tree = ast.parse("def f():\n    return User.id\n")
+        scope = FileScope()
+        collect(tree, scope)
+
+        assert "User" not in scope.defined
+        assert any(name == "User" for name, _ in scope.used), (
+            "脚本没能识别出未定义的名字 User"
+        )
+
+    def test_script_ignores_lambda_parameters(self):
+        """lambda 参数不是未定义名——避免误报。"""
+        import ast
+
+        sys.path.insert(0, str(ROOT))
+        from scripts.check_undefined_names import FileScope, collect
+
+        tree = ast.parse(
+            "rows = sorted(rows, key=lambda x: (not x.error, x.name))\n"
+        )
+        scope = FileScope()
+        collect(tree, scope)
+
+        undefined = [n for n, _ in scope.used if n not in scope.defined]
+        assert "x" not in undefined, f"lambda 参数被误报：{undefined}"
 
 
 class TestScheduledTasksAreCallable:

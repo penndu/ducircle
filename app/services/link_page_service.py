@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.security import normalize_url, site_hash, url_hash
-from app.models import Blacklist, LinkPage, Site, SiteSource
+from app.models import Blacklist, LinkPage, Site, SiteSource, User
 from app.parser.link_page import LinkEntry, parse_link_page
 
 logger = logging.getLogger("ducircle.linkpage")
