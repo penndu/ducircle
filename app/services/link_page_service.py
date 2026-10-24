@@ -224,16 +224,39 @@ async def scan_all_link_pages(
 ) -> list[ScanResult]:
     """扫描所有用户的全部友链页。
 
-    调度器定期调用。逐个用户处理——租户隔离靠显式的
-    user_id 过滤，而不是 ORM 钩子（这里查的是 LinkPage，
-    钩子只覆盖租户业务表）。
+    调度器定期调用（每 5 分钟一次），内部按每个用户自己设置的
+    link_page_cron 判断该不该跑——到点了才扫。
+
+    逐个用户处理——租户隔离靠显式的 user_id 过滤，
+    而不是 ORM 钩子（这里查的是 LinkPage，钩子只覆盖租户业务表）。
     """
     settings = settings or get_settings()
+    now = datetime.now()
 
-    pages = (await db.execute(select(LinkPage).where(LinkPage.active.is_(True)))).scalars().all()
+    from sqlalchemy import update
+
+    # 连同用户的频率配置一起查
+    rows = (
+        await db.execute(
+            select(LinkPage, User.link_page_cron, User.last_link_page_scan_at)
+            .join(User, User.id == LinkPage.user_id)
+            .where(LinkPage.active.is_(True))
+        )
+    ).all()
+
+    from app.core.cron import should_run_now
+
     results: list[ScanResult] = []
+    executed_users: set[int] = set()
 
-    for page in pages:
+    for page, user_cron, last_scan_at in rows:
+        # 到点了才扫这个用户的友链页
+        if not should_run_now(
+            user_cron, last_scan_at, now, default=settings.link_page_cron
+        ):
+            continue
+
+        executed_users.add(page.user_id)
         try:
             result = await scan_link_page(db, page.user_id, page, settings, client)
             results.append(result)
@@ -244,5 +267,15 @@ async def scan_all_link_pages(
                 ScanResult(link_page_id=page.id, error=str(exc))
             )
             await db.rollback()
+
+    # 记录执行时间
+    for user_id in executed_users:
+        await db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(last_link_page_scan_at=now)
+        )
+    if executed_users:
+        await db.commit()
 
     return results

@@ -62,9 +62,16 @@ async def start_scheduler() -> AsyncIOScheduler:
         return scheduler
 
     if settings.scheduler_enabled:
+        # 抓取任务每 5 分钟检查一次，实际抓不抓由每个用户自己的
+        # cron 决定（见 run_crawl_all）。
+        #
+        # 为什么不用「每个用户注册一个 job」：
+        # 用户多了 job 就多了，改设置还要动态增删 job，
+        # 而 APScheduler 的 job 数量上限是有限的。
+        # 「高频检查 + 按用户过滤」更简单，也不用重启调度器。
         scheduler.add_job(
             lambda: _run_locked("daily-crawl", run_crawl_all),
-            _cron(settings.crawl_cron),
+            _cron("*/5 * * * *"),
             id="crawl_all",
             name="定时抓取",
             replace_existing=True,
@@ -96,9 +103,10 @@ async def start_scheduler() -> AsyncIOScheduler:
             max_instances=1,
         )
 
+        # 同样每 5 分钟检查一次，由用户的 link_page_cron 决定
         scheduler.add_job(
             lambda: _run_locked("link-pages", run_link_page_scan),
-            _cron(settings.link_page_cron),
+            _cron("*/5 * * * *"),
             id="link_page_scan",
             name="友链页检测",
             replace_existing=True,
@@ -142,7 +150,16 @@ async def shutdown_scheduler() -> None:
 
 
 async def run_crawl_all() -> dict:
-    """抓取所有用户所有待抓站点。"""
+    """按每个用户自己设置的频率抓取。
+
+    调度器每 5 分钟调一次这个函数，
+    内部判断每个用户「到点了没」——
+    规则是「最近一个 cron 触发点是否晚于该用户上次执行时间」。
+
+    这个语义不漏也不重：
+    - 调度器延迟到 12:08 才跑，12:00 的触发点仍会被识别
+    - 已经跑过的用户不会重复跑
+    """
     from app.services.crawl_service import crawl_all_pending
 
     return await crawl_all_pending()
@@ -163,7 +180,11 @@ async def run_ai_summaries() -> dict:
 
 
 async def run_link_page_scan() -> dict:
-    """检测所有友链页，发现新友链自动补进列表。"""
+    """按每个用户自己设置的频率检测友链页。
+
+    和 run_crawl_all 同样的逻辑：调度器每 5 分钟调一次，
+    内部按用户的 link_page_cron 判断该不该跑。
+    """
     from app.services.link_page_service import scan_all_link_pages
 
     results = await scan_all_link_pages()

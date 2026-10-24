@@ -22,6 +22,9 @@ class UserSettingsUpdate(BaseModel):
     ai_api_key: str | None = None
     max_concurrent_override: int | None = None
     ai_daily_quota_override: int | None = None
+    # 采集频率（cron 表达式）。空字符串表示用平台默认。
+    crawl_cron: str | None = None
+    link_page_cron: str | None = None
 
 
 @router.patch("/me", summary="更新我的设置")
@@ -40,6 +43,29 @@ async def update_settings(
         if not 0 <= data["ai_daily_quota_override"] <= 1000:
             raise HTTPException(status_code=400, detail="每日额度应在 0~1000 之间")
 
+    # cron 表达式必须先校验。
+    # 非法表达式进库后，调度器在后台跑起来才炸，
+    # 用户完全感知不到——所以宁可现在拒绝保存。
+    from app.core.cron import validate_cron
+
+    for field, label in (
+        ("crawl_cron", "文章采集频率"),
+        ("link_page_cron", "友链采集频率"),
+    ):
+        if field not in data:
+            continue
+        value = data[field]
+        # 空字符串等价于「用平台默认」
+        if value is not None and not value.strip():
+            data[field] = None
+            continue
+        result = validate_cron(value)
+        if not result.valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{label}无效：{result.error}",
+            )
+
     for field, value in data.items():
         setattr(user, field, value)
 
@@ -49,6 +75,8 @@ async def update_settings(
         "ai_enabled": user.ai_enabled,
         "ai_provider": user.ai_provider,
         "has_own_ai_key": user.has_own_ai_key,
+        "crawl_cron": user.crawl_cron,
+        "link_page_cron": user.link_page_cron,
     }
 
 
@@ -99,3 +127,19 @@ async def reset_api_key(user: CurrentUserSession, db: DbSession) -> dict:
     user.api_key_hash = hash_api_key(key)
     await db.flush()
     return {"api_key": key}
+
+@router.get("/me/cron-presets", summary="采集频率预设")
+async def cron_presets(user: CurrentUserSession) -> dict:
+    """返回常用频率预设。
+
+    前端用它渲染下拉框——让用户选而不是手写 cron 表达式，
+    大部分人不知道 cron 怎么写。
+    """
+    from app.core.cron import CRON_PRESETS
+
+    return {
+        "presets": [
+            {"label": label, "value": value, "hint": hint}
+            for label, value, hint in CRON_PRESETS
+        ]
+    }

@@ -235,12 +235,16 @@ async def settings_page(
     from app.core.config import get_settings
 
     ctx = await _page_context(request, user, await nav_counts(db), "settings")
+    from app.core.cron import CRON_PRESETS
     from app.services.llm import PROVIDER_DISPLAY_NAMES
 
     ctx.update(
         quota=user.quota_limit(get_settings().ai_daily_quota),
         providers=list(PROVIDER_DISPLAY_NAMES),
         provider_names=PROVIDER_DISPLAY_NAMES,
+        # 采集频率预设
+        cron_presets=CRON_PRESETS,
+        cron_preset_values=[v for _, v, _ in CRON_PRESETS],
     )
     return render(request, "settings.html", ctx)
 

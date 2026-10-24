@@ -35,25 +35,49 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
     调度器不需要也不能手工拼 user_id 条件。
 
     单用户内部用信号量限并发，全局再套一层并发上限（见 Crawler）。
+
+    **按用户自己的频率过滤**：每个用户可以在设置页指定
+    多久抓一次（cron 表达式），这里只抓「到点了」的用户。
+    调度器每 5 分钟调一次这个函数，具体频率判断在
+    app/core/cron.py 的 should_run_now()。
     """
     settings = get_settings()
+    now = datetime.now()
 
     # 系统级查询：跨用户，需要显式豁免
     async with session_scope() as db, no_tenant_filter():
         users = (
-            await db.execute(select(User.id).where(User.is_active.is_(True)))
-        ).scalars().all()
+            await db.execute(
+                select(
+                    User.id, User.crawl_cron, User.last_crawl_at
+                ).where(User.is_active.is_(True))
+            )
+        ).all()
 
     if not users:
         return {"users": 0, "crawled": 0, "new_posts": 0}
 
+    from app.core.cron import should_run_now
+
     total_crawled = 0
     total_new = 0
+    executed = 0
 
-    for user_id in users:
+    for user_id, user_cron, last_crawl_at in users:
+        # 到点了才抓
+        if not should_run_now(
+            user_cron, last_crawl_at, now, default=settings.crawl_cron
+        ):
+            continue
+
+        executed += 1
         try:
             async with as_tenant_async(user_id):
-                result = await _crawl_user_sites(db_factory=session_scope, user_id=user_id)
+                result = await _crawl_user_sites(
+                    db_factory=session_scope, user_id=user_id
+                )
+            # 记录执行时间，下次按这个判断
+            await _mark_crawled(user_id, now)
         except Exception:  # noqa: BLE001
             logger.exception("用户 %d 的抓取任务失败", user_id)
             continue
@@ -61,10 +85,24 @@ async def crawl_all_pending(max_sites: int | None = None) -> dict:
         total_new += result["new_posts"]
 
     logger.info(
-        "定时抓取完成：%d 个用户，%d 个站点，新增 %d 篇文章",
-        len(users), total_crawled, total_new,
+        "定时抓取完成：%d/%d 个用户到点，%d 个站点，新增 %d 篇文章",
+        executed, len(users), total_crawled, total_new,
     )
-    return {"users": len(users), "crawled": total_crawled, "new_posts": total_new}
+    return {
+        "users": len(users),
+        "executed": executed,
+        "crawled": total_crawled,
+        "new_posts": total_new,
+    }
+
+
+async def _mark_crawled(user_id: int, when: datetime) -> None:
+    """记录用户的抓取执行时间。"""
+    async with session_scope() as db, no_tenant_filter():
+        await db.execute(
+            update(User).where(User.id == user_id).values(last_crawl_at=when)
+        )
+        await db.commit()
 
 
 async def _crawl_user_sites(db_factory, user_id: int) -> dict:
