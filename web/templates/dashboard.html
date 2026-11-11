@@ -45,6 +45,8 @@
 .ds-kpi-num small{font-size:14px;color:var(--ds-muted);margin-left:3px;font-weight:500}
 .ds-kpi-foot{font-size:11.5px;color:var(--ds-faint);position:relative;z-index:1}
 .ds-kpi-foot b{color:var(--ds-ink);font-weight:600}
+.ds-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
+@media(min-width:768px){.ds-kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}}
 .ds-track{height:4px;border-radius:4px;background:#eef2ee;overflow:hidden;margin-top:10px;position:relative;z-index:1}
 .ds-track i{display:block;height:100%;border-radius:4px;background:var(--ds-brand)}
 .ds-track.warn i{background:var(--ds-accent)}
@@ -88,10 +90,38 @@
 .ds-empty h2{font-size:16px;font-weight:630;margin:0 0 8px}
 .ds-empty p{font-size:13px;color:var(--ds-muted);max-width:400px;margin:0 auto 20px;line-height:1.8}
 .ds-strategy{font-size:12.5px}
-.ds-strategy-row{margin-bottom:11px}
+.ds-strategy-row{margin-bottom:0}
 .ds-strategy-row:last-child{margin-bottom:0}
 .ds-strategy-label{display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;color:var(--ds-ink)}
 .ds-strategy-label span:last-child{color:var(--ds-faint);font-family:var(--mono);font-size:11px}
+
+/* 12 栅格：左 8 右 4。之前用 lg:grid-cols-3 + col-span-2，
+   右侧固定 1/3 宽，在宽屏下显得窄而长。 */
+.ds-grid{display:grid;grid-template-columns:1fr;gap:1rem}
+@media(min-width:1100px){
+  .ds-grid{grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:1.25rem}
+}
+/* 趋势 + 策略这一对并排，避免左右不等高留下空白 */
+.ds-pair{display:grid;grid-template-columns:1fr;gap:1rem;align-items:stretch}
+@media(min-width:760px){
+  .ds-pair{grid-template-columns:1fr 1fr}
+}
+/* 策略卡的行分布撑满卡片高度，不在底部留一段空 */
+.ds-strategy{display:flex;flex-direction:column}
+.ds-strategy-body{flex:1;display:flex;flex-direction:column;justify-content:flex-start;gap:14px}
+/* 最新文章在宽屏下双列，左栏变矮，与右栏高度更接近 */
+.ds-posts{display:grid;grid-template-columns:1fr;gap:0 1.5rem}
+@media(min-width:1400px){
+  .ds-posts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ds-posts .ds-post{border-top:1px solid #f1f4f0}
+  .ds-posts .ds-post:nth-child(-n+2){border-top:0;padding-top:2px}
+}
+.ds-quick{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ds-quick-link{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ds-ink-2);
+  border:1px solid var(--ds-line);border-radius:10px;padding:9px 11px;transition:background .18s,border-color .18s}
+.ds-quick-link:hover{background:var(--ds-brand-soft);border-color:#d5e9de;color:var(--ds-brand-dark)}
+.ds-quick-ic{width:24px;height:24px;border-radius:7px;background:var(--ds-brand-soft);color:var(--ds-brand);
+  display:grid;place-items:center;flex-shrink:0}
 </style>
 {% endblock %}
 
@@ -137,7 +167,7 @@
   {% endif %}
 
   {# ---- 核心指标 ---- #}
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+  <div class="ds-kpis">
     <div class="ds-card ds-kpi">
       <div class="ds-kpi-label">
         <span class="ds-kpi-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg></span>
@@ -179,9 +209,10 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 md:mt-5">
+  {# ---- 主区：左 8 / 右 4（12 栅格） ---- #}
+  <div class="ds-grid mt-4 md:mt-5">
     {# ---- 左栏 ---- #}
-    <div class="lg:col-span-2 space-y-4 md:space-y-5">
+    <div class="ds-col-main space-y-4 md:space-y-5">
 
       <section class="ds-card">
         <div class="ds-card-head">
@@ -203,6 +234,57 @@
         </div>
       </section>
 
+      {# 趋势与策略并排：宽屏下这一对高度接近，不再留出空白 #}
+      <div class="ds-pair">
+        <section class="ds-card ds-strategy">
+          <div class="ds-card-head">
+            <div>
+              <h2 class="ds-card-title">抓取策略分布</h2>
+              <p class="ds-card-note">自动识别覆盖得越多，需要手写规则的站点越少</p>
+            </div>
+          </div>
+          {% if strategy_rows %}
+          {% set max_count = strategy_rows[0][1] %}
+          <div class="ds-strategy-body">
+          {% for strategy, count in strategy_rows %}
+          <div class="ds-strategy-row">
+            <div class="ds-strategy-label">
+              <span>{{ strategy | replace('fingerprint:', '框架识别 · ') }}</span>
+              <span>{{ count }} 篇</span>
+            </div>
+            <div class="ds-track" style="margin-top:0"><i style="width:{{ (count / max_count * 100) | round | int }}%"></i></div>
+          </div>
+          {% endfor %}
+          </div>
+          {% else %}
+          <p style="font-size:12.5px;color:var(--ds-faint);margin:0">还没有抓取记录。</p>
+          {% endif %}
+        </section>
+
+        <section class="ds-card">
+          <div class="ds-card-head">
+            <div>
+              <h2 class="ds-card-title">最活跃的友链</h2>
+              <p class="ds-card-note">文章数最多的站点</p>
+            </div>
+            <a class="ds-card-action" href="/web/sites">管理 →</a>
+          </div>
+          {% if insights.top_sites %}
+          {% for site in insights.top_sites %}
+          <div class="ds-list-row">
+            <span class="ds-avatar">
+              {% if site.avatar %}<img src="{{ site.avatar }}" alt="" loading="lazy">{% else %}{{ site.name[0] }}{% endif %}
+            </span>
+            <a class="ds-list-row-name" href="{{ site.url }}" target="_blank" rel="noopener noreferrer">{{ site.name }}</a>
+            <span class="ds-list-row-num">{{ site.count }} 篇</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <p style="font-size:12.5px;color:var(--ds-faint);margin:0">添加友链后这里会显示排行。</p>
+          {% endif %}
+        </section>
+      </div>
+
       <section class="ds-card">
         <div class="ds-card-head">
           <div>
@@ -213,6 +295,7 @@
         </div>
 
         {% if insights.recent_posts %}
+          <div class="ds-posts">
           {% for post in insights.recent_posts %}
           <div class="ds-post">
             <div class="ds-avatar">
@@ -234,6 +317,7 @@
             </div>
           </div>
           {% endfor %}
+          </div>
         {% else %}
         <div style="text-align:center;padding:34px 10px;color:var(--ds-faint);font-size:13px">
           还没有文章。添加友链后点右上角「立即抓取全部」就会有了。
@@ -243,7 +327,7 @@
     </div>
 
     {# ---- 右栏 ---- #}
-    <aside class="space-y-4 md:space-y-5">
+    <aside class="ds-col-side space-y-4 md:space-y-5">
 
       <section class="ds-card">
         <div class="ds-card-head"><h2 class="ds-card-title">抓取健康</h2>
@@ -310,40 +394,36 @@
         </div>
       </section>
 
-      {% if insights.top_sites %}
+      {# 快捷入口：右栏底部原本空着，补上常用操作 #}
       <section class="ds-card">
-        <div class="ds-card-head"><h2 class="ds-card-title">最活跃的友链</h2>
-          <a class="ds-card-action" href="/web/sites">管理 →</a></div>
-        {% for site in insights.top_sites %}
-        <div class="ds-list-row">
-          <span class="ds-avatar">
-            {% if site.avatar %}<img src="{{ site.avatar }}" alt="" loading="lazy">{% else %}{{ site.name[0] }}{% endif %}
-          </span>
-          <a class="ds-list-row-name" href="{{ site.url }}" target="_blank" rel="noopener noreferrer">{{ site.name }}</a>
-          <span class="ds-list-row-num">{{ site.count }} 篇</span>
+        <div class="ds-card-head"><h2 class="ds-card-title">快捷操作</h2></div>
+        <div class="ds-quick">
+          <a href="/web/sites" class="ds-quick-link">
+            <span class="ds-quick-ic">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>
+            </span>
+            <span>添加友链</span>
+          </a>
+          <a href="/web/link-pages" class="ds-quick-link">
+            <span class="ds-quick-ic">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+            </span>
+            <span>导入友链页</span>
+          </a>
+          <a href="/web/posts" class="ds-quick-link">
+            <span class="ds-quick-ic">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </span>
+            <span>浏览文章流</span>
+          </a>
+          <a href="/web/settings" class="ds-quick-link">
+            <span class="ds-quick-ic">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.35.4.64.73.83"/></svg>
+            </span>
+            <span>采集与 AI 设置</span>
+          </a>
         </div>
-        {% endfor %}
       </section>
-      {% endif %}
-
-      {% if strategy_rows %}
-      <section class="ds-card ds-strategy">
-        <div class="ds-card-head"><h2 class="ds-card-title">抓取策略分布</h2></div>
-        <p style="font-size:11.5px;color:var(--ds-faint);margin:-6px 0 14px;line-height:1.6">
-          自动识别覆盖得越多，需要手写规则的站点越少。
-        </p>
-        {% set max_count = strategy_rows[0][1] %}
-        {% for strategy, count in strategy_rows %}
-        <div class="ds-strategy-row">
-          <div class="ds-strategy-label">
-            <span>{{ strategy | replace('fingerprint:', '框架识别 · ') }}</span>
-            <span>{{ count }} 篇</span>
-          </div>
-          <div class="ds-track" style="margin-top:0"><i style="width:{{ (count / max_count * 100) | round | int }}%"></i></div>
-        </div>
-        {% endfor %}
-      </section>
-      {% endif %}
     </aside>
   </div>
 </div>

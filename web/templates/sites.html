@@ -29,7 +29,7 @@
 {% endif %}
 
 {% if sites %}
-<ul class="space-y-2">
+<ul class="list-grid">
   {% for site in sites %}
   <li class="bg-white rounded-lg border {% if site.error %}border-red-200{% else %}border-gray-200{% endif %} p-4">
     <div class="flex items-start gap-3">

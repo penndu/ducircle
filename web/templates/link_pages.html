@@ -15,7 +15,7 @@
 </div>
 
 {% if link_pages %}
-<ul class="space-y-2">
+<ul class="list-grid">
   {% for page in link_pages %}
   <li class="bg-white rounded-lg border {% if page.last_error %}border-red-200{% else %}border-gray-200{% endif %} p-4">
     <div class="flex items-start gap-3">

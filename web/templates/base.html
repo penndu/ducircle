@@ -18,6 +18,18 @@
     body { -webkit-font-smoothing: antialiased; }
     /* 表格在窄屏可横向滚动，不撑破布局 */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    /* 列表页：窄屏单列，宽屏双列。
+       内容区放宽后，单列会让卡片拉得过宽、行内留白稀疏。 */
+    .list-grid { display: grid; grid-template-columns: 1fr; gap: .5rem; }
+    @media (min-width: 1180px) {
+      .list-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+      .list-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (min-width: 1680px) {
+      .list-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    /* 设置页这类表单保持单列但限宽，避免行拉太长 */
+    .form-narrow { max-width: 760px; }
   </style>
   {% block head_extra %}{% endblock %}
 </head>

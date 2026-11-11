@@ -7,7 +7,7 @@
 <div class="min-h-screen md:flex">
 
   {# ---- 侧边导航（桌面） ---- #}
-  <aside class="hidden md:flex md:flex-col md:w-56 md:shrink-0 bg-white border-r border-gray-200">
+  <aside class="hidden md:flex md:flex-col md:w-60 md:shrink-0 bg-white border-r border-gray-200">
     <div class="px-5 py-5 border-b border-gray-100">
       <a href="/web" class="flex items-center gap-2">
         <span class="w-7 h-7 rounded grid place-items-center text-sm font-medium text-white" style="background:var(--ds-brand)">友</span>
@@ -50,8 +50,10 @@
   </aside>
 
   {# ---- 主内容 ---- #}
+  {# 内容区铺满可用宽度（上限 1560px）。之前锁死在 max-w-5xl，
+     宽屏下右侧会空掉一大块，页面显得「没做完」。 #}
   <main class="flex-1 min-w-0 pb-20 md:pb-8">
-    <div class="px-4 md:px-8 py-6 max-w-5xl">
+    <div class="px-4 md:px-6 lg:px-8 py-6 max-w-[1560px] mx-auto">
       {% block page %}{% endblock %}
     </div>
   </main>
