@@ -227,9 +227,32 @@ class TestDuplicateGuidHandling:
                 encoding="utf-8"
             )
         )
-        assert "deleted_at = NOW()" in content
+        assert "DELETE p FROM posts p" in content, "迁移必须物理删除重复行"
         assert "create_unique_constraint" in content
         # 清理语句必须排在建约束之前
-        assert content.index("deleted_at = NOW()") < content.index(
+        assert content.index("DELETE p FROM posts p") < content.index(
             "create_unique_constraint"
         )
+
+    def test_constraint_includes_deleted_at(self):
+        """约束必须带 deleted_at。
+
+        MySQL 唯一索引里 NULL 不参与去重，两列约束会让
+        「软删除的旧行」和「新插入的行」撞车——
+        而文章删掉后重新抓回来是正常业务。
+        """
+        from app.models import Post
+
+        names = {
+            c.name for c in Post.__table__.constraints if c.name
+        }
+        assert "uq_post_user_guid" in names
+
+        from pathlib import Path
+
+        content = (
+            Path("alembic/versions/0004_post_guid_unique.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert '"user_id", "guid_hash", "deleted_at"' in content

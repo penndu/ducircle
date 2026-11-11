@@ -24,8 +24,13 @@ from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 class Post(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "posts"
     __table_args__ = (
-        # 去重键：同一用户下同 guid 只留一条
-        UniqueConstraint("user_id", "guid_hash", name="uq_post_user_guid"),
+        # 去重键：同一用户下同 guid 只留一条。
+        # 带 deleted_at 是因为 posts 是软删除表——文章删掉后重新抓回来
+        # 是正常业务，MySQL 唯一索引里 NULL 不参与去重，
+        # 两列约束会让「软删除的旧行」和「新插入的行」撞车。
+        UniqueConstraint(
+            "user_id", "guid_hash", "deleted_at", name="uq_post_user_guid"
+        ),
         # 文章流分页走这条索引
         Index("ix_posts_user_created", "user_id", "created"),
         Index("ix_posts_user_score", "user_id", "ai_score"),
