@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="{{ app_name }} 开放 API 文档：鉴权方式、接口清单、请求示例与返回字段。">
+<title>API 文档 · {{ app_name }}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f6b54'/><text x='50' y='68' text-anchor='middle' font-size='58' fill='white'>友</text></svg>">
+{% include "_site_style.html" %}
+</head>
+<body>
+
+{% include "_site_header.html" %}
+
+<main>
+  <section class="page-hero">
+    <div class="wrap">
+      <div class="crumb"><a href="/">首页</a><span>/</span><span>API 文档</span></div>
+      <span class="eyebrow"><i></i>OPEN API · v{{ version }}</span>
+      <h1>数据是你的，接口也是开放的</h1>
+      <p class="lead">
+        用一个 API Key 就能把文章流取回自己的博客：标题、链接、站点、摘要、推荐分都是结构化字段，
+        前端想怎么排都行。下面这份清单直接由服务的 OpenAPI 生成，不会和实际接口脱节。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="/docs/swagger">打开交互式文档
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn btn-ghost" href="/openapi.json">OpenAPI JSON</a>
+        <a class="btn btn-ghost" href="/redoc">ReDoc</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">QUICK START</div>
+        <h2>三步接上，不用改主题</h2>
+        <p>整套流程只需要一次 GET，域名、字段都沿用友链朋友圈的习惯，老前端基本不用动。</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-n">01 / SIGN UP</div>
+          <h3>注册并添加友链</h3>
+          <p>注册后在后台粘贴 <code>/friends/</code> 之类的友链页，或手动加站点、导入 OPML，等它抓回第一批文章。</p>
+        </div>
+        <div class="step">
+          <div class="step-n">02 / API KEY</div>
+          <h3>拿到你的 API Key</h3>
+          <p>在「设置 → API Key」里生成，随时可以重新生成。每个 Key 只对应自己的数据，租户之间互相看不到。</p>
+        </div>
+        <div class="step">
+          <div class="step-n">03 / REQUEST</div>
+          <h3>带着请求头调接口</h3>
+          <p>请求头加 <code>X-API-Key</code>，调 <code>/v1/all</code> 就能拿到文章流。分页用 <code>start / end</code>。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="auth" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">CONVENTIONS</div>
+        <h2>鉴权与约定</h2>
+      </div>
+      <div class="doc-grid">
+        <div class="panel panel-pad">
+          <h3>请求约定</h3>
+          <p class="hint">所有 <code>/v1</code> 接口都要求带 Key，公开页面和后台接口不走这一套。</p>
+          <table class="kv">
+            <tr><th>鉴权头</th><td>X-API-Key: your_key</td></tr>
+            <tr><th>基地址</th><td>{{ base_url }}</td></tr>
+            <tr><th>数据格式</th><td>application/json</td></tr>
+            <tr><th>分页</th><td>start / end（条数偏移）</td></tr>
+            <tr><th>排序</th><td>rule = created | updated | score</td></tr>
+          </table>
+        </div>
+        <div class="panel panel-pad">
+          <h3>常见返回</h3>
+          <p class="hint">出错时返回 <code>{"detail": "…"}</code>，中文说明，不甩堆栈。</p>
+          <table class="kv">
+            <tr><th>200</th><td>请求成功</td></tr>
+            <tr><th>401</th><td>API Key 缺失、无效或已重置</td></tr>
+            <tr><th>422</th><td>参数不合法，附具体字段说明</td></tr>
+            <tr><th>429</th><td>触发限流，稍后重试</td></tr>
+            <tr><th>500</th><td>服务端异常，可到服务状态页查看</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="note" style="margin-top:20px">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        <span>接口清单按 <code>app.openapi()</code> 实时生成。想在线试请求、看完整 schema，用上面的「交互式文档」；<code>/openapi.json</code> 可直接给代码生成器用。</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="endpoints">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">ENDPOINTS</div>
+        <h2>开放接口清单</h2>
+        <p>共 {{ endpoints|length }} 个只读接口，全部为 GET，返回当前 Key 所属用户的数据。</p>
+      </div>
+      <div class="ep-wrap">
+        <div class="ep-row head"><span>方法</span><span>路径</span><span>说明</span><span>主要参数</span></div>
+        {% for ep in endpoints %}
+        <div class="ep-row">
+          <span><span class="method {{ ep.method }}">{{ ep.method }}</span></span>
+          <span class="ep-path">{{ ep.path }}</span>
+          <span class="ep-desc">{{ ep.summary }}</span>
+          <span class="ep-params">{{ ep.params }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="example" style="padding-top:0">
+    <div class="wrap api-grid">
+      <div>
+        <div class="section-kicker">EXAMPLE</div>
+        <h2 style="font-size:clamp(26px,3vw,34px);letter-spacing:-.03em;margin:12px 0 12px">复制这一行就能跑</h2>
+        <p style="color:var(--muted);font-size:15.5px;margin:0;line-height:1.8">
+          取最近 10 篇，按发布时间倒序。想看推荐分最高的，把 <code style="font-family:var(--mono);font-size:13px">rule</code> 换成 <code style="font-family:var(--mono);font-size:13px">score</code>。
+        </p>
+        <ul class="api-list">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span><code>total</code> 是文章总数，方便前端算分页</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span><code>summary</code> 和 <code>score</code> 未生成时为 null</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span>时间字段为 ISO 8601，前端自行格式化</span></li>
+        </ul>
+        <a class="btn btn-ghost" style="margin-top:26px" href="/web/register">去后台拿 Key →</a>
+      </div>
+      <div class="code">
+        <div class="code-top"><span></span><span></span><span></span><b>GET /v1/all</b></div>
+<pre><span class="c-dim"># 把文章流取回自己的博客</span>
+<span class="c-cmd">curl</span> -H <span class="c-key">"X-API-Key: your_key"</span> \
+  <span class="c-url">{{ base_url }}/v1/all?start=0&amp;end=9&amp;rule=created</span>
+
+<span class="c-dim"># 返回</span>
+{
+  <span class="c-key">"data"</span>: [{
+    <span class="c-key">"title"</span>:   <span class="c-url">"给博客换了个静态生成器"</span>,
+    <span class="c-key">"author"</span>:  <span class="c-url">"木子学习笔记"</span>,
+    <span class="c-key">"link"</span>:    <span class="c-url">"https://example.com/posts/42/"</span>,
+    <span class="c-key">"created"</span>: <span class="c-url">"2026-11-11T08:30:00"</span>,
+    <span class="c-key">"summary"</span>: <span class="c-url">"从迁移到部署的完整记录"</span>,
+    <span class="c-key">"score"</span>:   <span class="c-url">9.2</span>
+  }],
+  <span class="c-key">"total"</span>: 326,
+  <span class="c-key">"start"</span>: 0,
+  <span class="c-key">"end"</span>: 9
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="cta">
+      <div>
+        <h2>还没有 Key？先去后台建一个友链页</h2>
+        <p>注册只要一个用户名，采集频率、AI 摘要都能自己定。</p>
+      </div>
+      <a class="btn" href="/web/register">免费开始 →</a>
+    </div>
+  </div>
+</main>
+
+{% include "_site_footer.html" %}
+
+</body>
+</html>

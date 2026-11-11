@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -62,7 +65,7 @@ app = FastAPI(
     description="面向博客主的公开友链聚合服务",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/docs",
+    docs_url="/docs/swagger",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
@@ -98,11 +101,8 @@ if static_dir.exists():
 # ---- 基础端点 ----
 
 
-@app.get("/health", tags=["运维"], summary="健康检查")
-async def health() -> dict:
-    """供 Docker HEALTHCHECK 和负载均衡探活使用。"""
-    import os
-
+async def _health_payload() -> dict:
+    """健康检查的机器可读部分。字段保持固定，别让监控脚本解析失败。"""
     import app.db as db_module
 
     db_ok = await db_module.check_db()
@@ -116,6 +116,117 @@ async def health() -> dict:
         "build": os.environ.get("DUCIRCLE_VERSION", "dev"),
         "built_at": os.environ.get("DUCIRCLE_BUILD_TIME", "unknown"),
     }
+
+
+async def _health_extras() -> dict:
+    """只给 HTML 状态页看的补充信息。
+
+    任何一项探测失败都只降级成「未知/不可用」，绝不让状态页自己 500——
+    服务出问题时，这个页面反而是最需要能打开的。
+    """
+    extras: dict = {
+        "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "redis": None,
+        "scheduler": None,
+        "jobs": [],
+    }
+    try:
+        from app.core.ratelimit import RedisManager
+
+        extras["redis"] = await asyncio.wait_for(
+            RedisManager.instance().ping(), timeout=1.5
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Redis 状态探测失败: %s", exc)
+        extras["redis"] = False
+
+    try:
+        scheduler = getattr(app.state, "scheduler", None)
+        running = bool(scheduler and getattr(scheduler, "running", False))
+        extras["scheduler"] = running
+        extras["jobs"] = (
+            [job.name for job in scheduler.get_jobs()] if running else []
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("调度器状态探测失败: %s", exc)
+    return extras
+
+
+@app.get("/health", tags=["运维"], summary="健康检查")
+async def health(request: Request) -> Response:
+    """同一个地址，两种呈现。
+
+    浏览器（Accept: text/html）看到的是和首页同款的状态页；
+    Docker HEALTHCHECK、curl 和监控仍拿到原来的 JSON，
+    契约不变。?format=html / ?format=json 可以强制指定。
+    """
+    payload = await _health_payload()
+    fmt = request.query_params.get("format", "").lower()
+    accept = request.headers.get("accept", "")
+    wants_html = fmt == "html" or (fmt != "json" and "text/html" in accept)
+    if not wants_html:
+        return JSONResponse(payload)
+
+    from app.web import render
+
+    extras = await _health_extras()
+    return render(
+        request,
+        "status.html",
+        {
+            "active": "status",
+            "health": payload,
+            "base_url": str(request.base_url).rstrip("/"),
+            **extras,
+        },
+    )
+
+
+def _v1_endpoints() -> list[dict]:
+    """从 OpenAPI 实时生成接口清单，文档页不会和真实路由脱节。"""
+    try:
+        schema = app.openapi()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("OpenAPI 生成失败，文档页降级为空清单: %s", exc)
+        return []
+    rows = []
+    for path, methods in sorted(schema.get("paths", {}).items()):
+        if not path.startswith("/v1"):
+            continue
+        for method, spec in methods.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            params = [
+                p["name"] + ("*" if p.get("required") else "")
+                for p in spec.get("parameters", [])
+                if isinstance(p, dict) and "name" in p
+            ]
+            rows.append(
+                {
+                    "method": method.upper(),
+                    "path": path,
+                    "summary": spec.get("summary") or "—",
+                    "params": ", ".join(params) if params else "—",
+                }
+            )
+    return rows
+
+
+@app.get("/docs", include_in_schema=False)
+async def api_docs(request: Request) -> Response:
+    """品牌化 API 文档页；可交互的 Swagger UI 移到 /docs/swagger。"""
+    from app.web import render
+
+    return render(
+        request,
+        "docs.html",
+        {
+            "active": "docs",
+            "version": app.version,
+            "base_url": str(request.base_url).rstrip("/"),
+            "endpoints": _v1_endpoints(),
+        },
+    )
 
 
 async def _public_overview() -> dict:

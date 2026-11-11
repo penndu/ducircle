@@ -1,0 +1,17 @@
+{% set active = active|default('') %}
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="/"><span class="brand-mark">友</span><span>{{ app_name }}</span></a>
+    <nav class="nav-links">
+      <a href="/#features">能做什么</a>
+      <a href="/#how">怎么用</a>
+      <a href="/#api">接入 API</a>
+      <a href="/docs"{% if active == "docs" %} class="on"{% endif %}>文档</a>
+      <a href="/health"{% if active == "status" %} class="on"{% endif %}>服务状态</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="btn btn-ghost btn-sm" href="/web/login">登录</a>
+      <a class="btn btn-primary btn-sm" href="/web/register">免费开始</a>
+    </div>
+  </div>
+</header>

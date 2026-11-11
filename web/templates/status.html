@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="{{ app_name }} 服务状态：API、数据库、Redis 与定时任务的实时运行情况。">
+<meta http-equiv="refresh" content="30">
+<title>服务状态 · {{ app_name }}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f6b54'/><text x='50' y='68' text-anchor='middle' font-size='58' fill='white'>友</text></svg>">
+{% include "_site_style.html" %}
+</head>
+<body>
+
+{% include "_site_header.html" %}
+
+<main>
+  <section class="page-hero">
+    <div class="wrap">
+      <div class="crumb"><a href="/">首页</a><span>/</span><span>服务状态</span></div>
+      <span class="eyebrow"><i></i>SERVICE STATUS</span>
+      <h1>现在跑得怎么样</h1>
+      <p class="lead">
+        这一页每 30 秒自动刷新一次，展示 API、数据库、Redis 和定时任务的实时状态。
+        给监控程序用的机器可读版本还是原来的 JSON，字段一个没改。
+      </p>
+      <div class="status-hero">
+        {% if health.status == "ok" %}
+        <span class="status-pill"><span class="pulse"></span>所有服务运行正常</span>
+        {% else %}
+        <span class="status-pill bad"><span class="pulse"></span>服务降级，请检查数据库</span>
+        {% endif %}
+        <span style="font-size:12.5px;color:var(--faint)">检测于 {{ checked_at }}</span>
+      </div>
+      <div class="hero-cta" style="margin-top:26px">
+        <a class="btn btn-primary btn-sm" href="/health?format=html">立即刷新</a>
+        <a class="btn btn-ghost btn-sm" href="/health?format=json">查看原始 JSON</a>
+        <a class="btn btn-ghost btn-sm" href="/docs">API 文档</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" style="padding-bottom:0">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">COMPONENTS</div>
+        <h2>各项组件</h2>
+        <p>Redis 不可用时服务仍可运行，只是限流与分布式锁会降级放行。</p>
+      </div>
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="sic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 17l5-5 4 3 7-8"/><path d="M20 7v5h-5"/></svg></div>
+          <h3>API 服务</h3>
+          <div class="state"><i></i>运行中</div>
+          <p>本页面由应用自身渲染，能打开就说明 Web 服务正常响应。</p>
+        </div>
+        <div class="status-card{% if health.db != 'ok' %} bad{% endif %}">
+          <div class="sic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+          <h3>数据库</h3>
+          <div class="state"><i></i>{% if health.db == "ok" %}连接正常{% else %}连接失败{% endif %}</div>
+          <p>文章、友链与抓取日志都存在这里，是最关键的一项依赖。</p>
+        </div>
+        <div class="status-card{% if not redis %} bad{% endif %}">
+          <div class="sic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg></div>
+          <h3>Redis</h3>
+          <div class="state"><i></i>{% if redis %}连接正常{% else %}不可用 · 已降级{% endif %}</div>
+          <p>用于限流、抓取锁与手动抓取状态；挂掉不会让服务拒绝启动。</p>
+        </div>
+        <div class="status-card{% if not scheduler %} bad{% endif %}">
+          <div class="sic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>定时任务</h3>
+          <div class="state"><i></i>{% if scheduler %}运行中 · {{ jobs|length }} 个任务{% else %}未运行{% endif %}</div>
+          <p>{% if jobs %}{{ jobs|join(" · ") }}{% else %}当前没有已注册的调度任务，或调度器未启用。{% endif %}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">BUILD &amp; RAW</div>
+        <h2>构建信息与原始响应</h2>
+      </div>
+      <div class="doc-grid">
+        <div class="panel panel-pad">
+          <h3>当前部署版本</h3>
+          <p class="hint">部署后核对 build 号，确认跑的是预期镜像。</p>
+          <table class="kv">
+            <tr><th>构建版本</th><td>{{ health.build }}</td></tr>
+            <tr><th>构建时间</th><td>{{ health.built_at }}</td></tr>
+            <tr><th>应用版本</th><td>{{ health.version }}</td></tr>
+            <tr><th>整体状态</th><td>{{ health.status }}</td></tr>
+            <tr><th>检测时间</th><td>{{ checked_at }}</td></tr>
+          </table>
+        </div>
+        <div class="panel panel-pad">
+          <h3>原始 JSON 响应</h3>
+          <p class="hint">和 <code>/health?format=json</code> 完全一致，可直接给监控程序用。</p>
+          <pre class="json-block">{{ health|tojson(indent=2) }}</pre>
+          <div class="status-meta">
+            <a href="/health?format=json" style="color:var(--brand)">打开纯 JSON →</a>
+            <span>Docker HEALTHCHECK 与 curl 默认拿到的就是这一份</span>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:20px">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        <span>浏览器访问 <code>/health</code> 会看到这一页；带 <code>Accept: application/json</code>、<code>*/*</code> 或加 <code>?format=json</code> 的请求仍返回 JSON，原有监控不用改。</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+{% include "_site_footer.html" %}
+
+</body>
+</html>
