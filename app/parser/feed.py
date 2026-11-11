@@ -22,20 +22,18 @@ from app.parser.base import ParsedPost, ParsedSite
 # 注意带不带 www 由调用方决定：这里都是相对路径，
 # 调用方用 urljoin 拼上基准地址，保留原域的 www 前缀。
 #
-# 关于末尾斜杠：很多站点的 /feed 会 301 跳到 /feed/，
-# 两者最终等价，所以斜杠变体不必都列。
-# 但少数站点只认带斜杠的（自建 CMS 常见），
-# 所以在少数几个高频路径上补了斜杠变体。
+# 关于末尾斜杠：调用方会为「目录型」路径自动补一个带斜杠的变体，
+# 且**带斜杠的排前面**——很多站点的 /feed 会 301 跳到 /feed/，
+# 而 /feed/ 才是权威地址；也有站点只认带斜杠的那个。
+# 所以这里只列不带斜杠的形态，斜杠变体由调用方生成。
 COMMON_FEED_PATHS = (
     "/feed",
-    "/feed/",
-    "/feed/rss/",
+    "/feed/rss",
     "/rss.xml",
     "/feed.xml",
     "/atom.xml",
     "/index.xml",
     "/rss",
-    "/rss/",
     "/atom",
     "/blog/feed",
     "/feeds/posts/default",  # Blogger

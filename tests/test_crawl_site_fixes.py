@@ -103,14 +103,18 @@ class TestArticlePathFiltering:
 
 class TestFeedDiscovery:
     def test_common_feed_paths_cover_real_world(self):
-        """常见 feed 路径要覆盖 WordPress / Typecho / Hugo 等。"""
+        """常见 feed 路径要覆盖 WordPress / Typecho / Hugo 等。
+
+        注意：列表里只列不带斜杠的形态，带斜杠的变体由调用方
+        自动生成并排在前面（/feed → /feed/ 优先试）。
+        """
         from app.parser.feed import COMMON_FEED_PATHS
 
         assert "/feed" in COMMON_FEED_PATHS
-        assert "/feed/" in COMMON_FEED_PATHS
         assert "/rss.xml" in COMMON_FEED_PATHS
         assert "/atom.xml" in COMMON_FEED_PATHS
         assert "/index.xml" in COMMON_FEED_PATHS
+        assert "/feed/rss" in COMMON_FEED_PATHS
 
     def test_declared_feed_found(self):
         """页面里声明的 <link rel="alternate"> 要能发现。"""

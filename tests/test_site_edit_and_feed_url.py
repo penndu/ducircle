@@ -249,11 +249,10 @@ class TestFeedUrlActuallyUsed:
 
 class TestFeedPathVariants:
     def test_feed_paths_include_slash_and_atom_variants(self):
-        """候选路径要覆盖带斜杠的 /feed/ 和 /atom.xml。"""
+        """候选路径要覆盖 /feed、/atom.xml 这类。"""
         from app.parser.feed import COMMON_FEED_PATHS
 
         assert "/feed" in COMMON_FEED_PATHS
-        assert "/feed/" in COMMON_FEED_PATHS
         assert "/atom.xml" in COMMON_FEED_PATHS
         assert "/rss.xml" in COMMON_FEED_PATHS
 
@@ -264,6 +263,109 @@ class TestFeedPathVariants:
 
         joined = urljoin("https://example.com", "/feed/")
         assert request_url(joined) == "https://example.com/feed/"
+
+    @pytest.mark.asyncio
+    async def test_slash_variant_tried_before_bare(self, monkeypatch):
+        """带斜杠的候选要排在前面。
+
+        /feed 通常会 301 跳到 /feed/，先试带斜杠的能少一跳重定向；
+        有些站点只认带斜杠的那个。
+        """
+        from app.services.crawler import Crawler
+
+        tried: list[str] = []
+
+        async def _fake_fetch(self, url, *, stream=False):
+            tried.append(url)
+            return 404, "not found"
+
+        monkeypatch.setattr(Crawler, "_fetch", _fake_fetch)
+
+        async with Crawler() as crawler:
+            await crawler.crawl_site("https://example.com")
+
+        feeds = [u for u in tried if "robots.txt" not in u]
+        assert feeds, "应该有 feed 候选"
+        assert feeds[0] == "https://example.com/feed/", (
+            f"第一个候选应是带斜杠的 /feed/，实际是 {feeds[0]}"
+        )
+        assert "https://example.com/feed" in feeds, "无斜杠形态也要试"
+
+    @pytest.mark.asyncio
+    async def test_file_paths_not_duplicated(self, monkeypatch):
+        """文件型路径（/rss.xml）不补斜杠变体——补了也没意义。"""
+        from app.services.crawler import Crawler
+
+        tried: list[str] = []
+
+        async def _fake_fetch(self, url, *, stream=False):
+            tried.append(url)
+            return 404, "not found"
+
+        monkeypatch.setattr(Crawler, "_fetch", _fake_fetch)
+
+        async with Crawler() as crawler:
+            await crawler.crawl_site("https://example.com")
+
+        feeds = [u for u in tried if "robots.txt" not in u]
+        assert "https://example.com/rss.xml" in feeds
+        assert "https://example.com/rss.xml/" not in feeds, (
+            "文件型路径不该补斜杠变体"
+        )
+
+    @pytest.mark.asyncio
+    async def test_slash_variant_actually_hits_feed(self, monkeypatch):
+        """带斜杠的候选命中时，要能解析出文章。"""
+        from app.services.crawler import Crawler
+
+        async def _fake_fetch(self, url, *, stream=False):
+            if url == "https://example.com/feed/":
+                return 200, (
+                    '<?xml version="1.0"?><rss version="2.0"><channel>'
+                    "<title>T</title><item><title>一</title>"
+                    "<link>https://example.com/posts/1</link>"
+                    "</item></channel></rss>"
+                )
+            return 404, "not found"
+
+        monkeypatch.setattr(Crawler, "_fetch", _fake_fetch)
+
+        async with Crawler() as crawler:
+            result = await crawler.crawl_site("https://example.com")
+
+        assert result.status == "success"
+        assert result.post_count == 1
+        assert result.site.feed_url == "https://example.com/feed/"
+
+
+class TestConnectErrorExplanation:
+    """连接失败要说清是「对方拒绝」还是「自己网络不通」。"""
+
+    def test_remote_protocol_error_mentions_blocking(self):
+        from app.services.crawler import _explain_connect_error
+
+        msg = _explain_connect_error("RemoteProtocolError", "https://x.com")
+        assert "拒绝" in msg
+        assert "x.com" in msg
+
+    def test_connect_error_mentions_blocking(self):
+        from app.services.crawler import _explain_connect_error
+
+        msg = _explain_connect_error("ConnectError", "https://x.com")
+        assert "拒绝" in msg
+
+    def test_timeout_mentions_timeout(self):
+        from app.services.crawler import _explain_connect_error
+
+        msg = _explain_connect_error("ConnectTimeout", "https://x.com")
+        assert "超时" in msg
+
+    def test_unknown_error_falls_back(self):
+        from app.services.crawler import _explain_connect_error
+
+        msg = _explain_connect_error("SomethingElse", "https://x.com")
+        assert "SomethingElse" in msg
+        assert "https://x.com" in msg
 
 
 class TestWwwFallback:

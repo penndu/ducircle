@@ -18,7 +18,7 @@ import random
 import re
 import time
 from datetime import datetime, timedelta
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from sqlalchemy import select
@@ -39,6 +39,26 @@ from app.parser.heuristic import parse_with_heuristic, looks_like_article
 
 # 连续失败达到该次数后停止高频重试
 FAILURE_THRESHOLD = 5
+
+
+def _explain_connect_error(error_name: str, url: str) -> str:
+    """给连接类错误一个能指明方向的说法。
+
+    「RemoteProtocolError: https://x.com」对用户毫无意义——
+    到底是自己网络的问题，还是对方不让我们访问？
+    这两种情况的应对完全不同，提示必须区分开。
+    """
+    if error_name in ("RemoteProtocolError", "ConnectError"):
+        return (
+            f"{error_name}：目标站点拒绝了本服务器的访问（{url}）。"
+            "该站可能屏蔽了云服务器机房 IP 或存在 HTTP/2 配置问题，"
+            "本机浏览器访问正常、服务端抓不到。"
+        )
+    if error_name in ("ConnectTimeout", "ReadTimeout", "TimeoutException"):
+        return (
+            f"{error_name}：连接 {url} 超时，站点无响应或网络不通。"
+        )
+    return f"{error_name}: {url}"
 
 
 def _with_www(url: str) -> str | None:
@@ -193,14 +213,14 @@ class Crawler:
                     return CrawlResult(
                         url=url,
                         status="failed",
-                        error=f"{type(exc).__name__}: {url}",
+                        error=_explain_connect_error(type(exc).__name__, url),
                         duration_ms=int((time.monotonic() - started) * 1000),
                     )
             else:
                 return CrawlResult(
                     url=url,
                     status="failed",
-                    error=f"{type(exc).__name__}: {url}",
+                    error=_explain_connect_error(type(exc).__name__, url),
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
         except Exception as exc:  # noqa: BLE001
@@ -301,9 +321,24 @@ class Crawler:
             if declared:
                 # 声明的地址最可信，优先试
                 candidates.append(request_url(declared))
-            candidates.extend(
-                request_url(urljoin(url, path)) for path in COMMON_FEED_PATHS
-            )
+            for path in COMMON_FEED_PATHS:
+                candidates.append(request_url(urljoin(url, path)))
+
+        # 每个候选再补一个「带末尾斜杠」的变体，且**带斜杠的排前面**。
+        # 很多站点的 /feed 会 301 跳到 /feed/，而 /feed/ 是权威地址；
+        # 也有站点只认带斜杠的那个。先试带斜杠的，少一跳重定向。
+        # 只对「目录型」路径补（/feed、/rss 这类），
+        # 文件型路径（/rss.xml、/atom.xml）补斜杠没意义还多一次请求。
+        expanded: list[str] = []
+        for candidate in candidates:
+            path = urlsplit(candidate).path
+            is_file = "." in path.rsplit("/", 1)[-1]
+            if is_file or candidate.endswith("/"):
+                expanded.append(candidate)
+                continue
+            expanded.append(candidate + "/")
+            expanded.append(candidate)
+        candidates = expanded
 
         seen: set[str] = set()
         for candidate in candidates:
