@@ -164,8 +164,13 @@ async def batch_summarize(
 
     # 前置拦截：平台不提供免费额度时，没填 Key 就直接说清楚，
     # 别让用户点了按钮等半天，最后看到一句「生成失败」。
-    allowed, used, limit = await check_quota(user, db)
-    if not allowed and limit <= 0 and not user.has_own_ai_key:
+    #
+    # ⚠️ 别把 check_quota 返回的配额上限写回 limit 变量——
+    # 那会把「要处理几篇」变成「每日额度上限」，用户自带 Key 时额度上限是 0，
+    # 结果一篇都不处理，接口还返回 200 说「已开始」。
+    # 两个值含义不同，名字要分开。
+    allowed, used, quota_limit = await check_quota(user, db)
+    if not allowed and quota_limit <= 0 and not user.has_own_ai_key:
         raise HTTPException(
             status_code=403,
             detail=(

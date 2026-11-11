@@ -51,6 +51,26 @@ async def client(monkeypatch):
     await engine.dispose()
 
 
+async def _give_ai_key(client, user_id: int, key: str = "sk-test-key") -> None:
+    """给用户填上自己的 API Key。
+
+    平台不提供免费额度（daily_quota=0），没 Key 时所有摘要接口都拦。
+    """
+    from sqlalchemy import update
+
+    from app.db import get_session_factory
+    from app.models import User
+
+    factory = get_session_factory()
+    async with factory() as db:
+        await db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(ai_api_key=key, ai_provider="minimax_cn", ai_model="test-model")
+        )
+        await db.commit()
+
+
 class TestSummaryStatusService:
     def test_key_includes_user(self):
         from app.services.summary_status import _key
@@ -97,6 +117,70 @@ class TestSummaryStatusService:
             classmethod(lambda cls: type("X", (), {"client": _FakeRedis()})()),
         )
         assert await summary_status.get_status(99) is None
+
+
+class TestBatchLimitNotOverwritten:
+    """批量生成的 limit 不能被配额上限覆盖。
+
+    踩过的坑：
+        allowed, used, limit = await check_quota(user, db)
+    check_quota 返回的第三个值是「每日额度上限」，不是「要处理几篇」。
+    用户自带 Key 时额度上限是 0 → limit 被覆盖成 0 →
+    接口返回 200「已开始为最多 0 篇」，实际一篇都没跑。
+    """
+
+    @pytest.mark.asyncio
+    async def test_limit_preserved(self, client, monkeypatch):
+        from app.services import ai_summary
+
+        captured: dict = {}
+
+        async def _fake_summarize(user_id, limit=20):
+            captured["limit"] = limit
+            return {"generated": 0, "skipped": 0}
+
+        monkeypatch.setattr(ai_summary, "summarize_pending_for_user", _fake_summarize)
+
+        await client.post(
+            "/web/register",
+            data={"username": "alice", "password": "password123", "email": ""},
+            follow_redirects=False,
+        )
+        # 自带 Key 才能过前置拦截（没 Key 时平台不给免费额度）
+        await _give_ai_key(client, 1)
+
+        r = await client.post("/api/ai/batch?limit=6")
+        assert r.status_code == 200
+        assert "6" in r.json()["message"], (
+            f"返回消息里应有请求的 6 篇，实际是 {r.json()['message']}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_batch_blocked_without_key(self, client):
+        """没配 Key 时要明确拦下，而不是假装开始了。"""
+        await client.post(
+            "/web/register",
+            data={"username": "alice", "password": "password123", "email": ""},
+            follow_redirects=False,
+        )
+        r = await client.post("/api/ai/batch?limit=6")
+        assert r.status_code == 403
+        assert "API Key" in r.json()["detail"]
+
+    def test_batch_does_not_overwrite_limit(self):
+        """batch 接口里不能把配额上限写回 limit。
+
+        只看 batch 那段——`/quota` 接口里的 limit 语义确实是配额上限。
+        """
+        import inspect
+
+        from app.api.ai import batch_summarize
+
+        src = inspect.getsource(batch_summarize)
+        assert "allowed, used, limit = await check_quota" not in src, (
+            "check_quota 的返回值覆盖了 limit（配额上限 ≠ 处理篇数）"
+        )
+        assert "quota_limit" in src
 
 
 class TestBatchStatusEndpoint:
