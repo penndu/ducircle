@@ -55,8 +55,11 @@
       </summary>
       <ul class="mt-2 text-xs text-gray-500 space-y-1 list-disc pl-4 leading-relaxed">
         <li>打开链接确认站点还活着，且没有被防火墙拦截</li>
-        <li>试试手动访问 <code class="bg-gray-100 px-1 rounded">{{ site.url }}atom.xml</code> 和
-            <code class="bg-gray-100 px-1 rounded">{{ site.url }}feed</code>，确认 RSS 地址</li>
+        <li>试试手动访问 <code class="bg-gray-100 px-1 rounded">{{ site.url | urljoin('/atom.xml') }}</code> 和
+            <code class="bg-gray-100 px-1 rounded">{{ site.url | urljoin('/feed/') }}</code>，
+            确认哪个是真正的 RSS 地址</li>
+        <li>把能用的那个 RSS 地址填到「友链管理 → 编辑 → RSS 地址」，
+            系统就会只抓它，不再自己猜</li>
         <li>如果站点是纯前端渲染（JS 生成内容），任何抓取工具都拿不到内容</li>
         <li>以上都正常的话，在友链管理页给这个站配置自定义 CSS 规则</li>
       </ul>

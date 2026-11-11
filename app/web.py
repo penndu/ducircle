@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urljoin
 
 from fastapi import Depends, Request
 from fastapi.templating import Jinja2Templates
@@ -48,6 +49,18 @@ def _truncate(value, n: int = 40) -> str:
     return value[:n] + "…" if len(value) > n else value
 
 
+def _url_join(base: str, path: str) -> str:
+    """拼接站点地址与相对路径。
+
+    直接写 `{{ site.url }}atom.xml` 会在站点地址没有末尾斜杠时
+    拼出「https://vjo.ccatom.xml」——少一个斜杠，地址完全不对。
+    urljoin 能正确处理：无论基址带不带斜杠都拼对。
+    """
+    if not base:
+        return path
+    return urljoin(base, path)
+
+
 # filter 必须在函数定义之后注册，否则会 NameError
 templates.env.filters["datetime"] = lambda v: (
     v.strftime("%Y-%m-%d %H:%M") if isinstance(v, datetime) else "-"
@@ -57,6 +70,7 @@ templates.env.filters["date"] = lambda v: (
 )
 templates.env.filters["ago"] = _time_ago
 templates.env.filters["truncate_title"] = _truncate
+templates.env.filters["urljoin"] = _url_join
 
 
 async def get_optional_user(
