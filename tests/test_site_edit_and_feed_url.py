@@ -266,6 +266,112 @@ class TestFeedPathVariants:
         assert request_url(joined) == "https://example.com/feed/"
 
 
+class TestWwwFallback:
+    """裸域连不上时要自动试 www.。
+
+    存量数据里站点网址存的是剥掉 www 的裸域（去重键形态），
+    而很多国内博客只在 www 上配了 DNS。
+    不做回退，iczrx.cn 这类站点永远连不上。
+    """
+
+    def test_with_www_adds_prefix(self):
+        from app.services.crawler import _with_www
+
+        assert _with_www("https://iczrx.cn/") == "https://www.iczrx.cn/"
+        assert _with_www("http://example.com/p") == "http://www.example.com/p"
+
+    def test_with_www_skips_existing_www(self):
+        from app.services.crawler import _with_www
+
+        assert _with_www("https://www.iczrx.cn/") is None
+
+    def test_with_www_skips_subdomains(self):
+        """blog.x.com 加 www 没意义。"""
+        from app.services.crawler import _with_www
+
+        assert _with_www("https://blog.gxres.net") is None
+        assert _with_www("https://a.b.c.com/x") is None
+
+    def test_with_www_keeps_port(self):
+        from app.services.crawler import _with_www
+
+        assert _with_www("http://example.com:8080/p") == (
+            "http://www.example.com:8080/p"
+        )
+
+    @pytest.mark.asyncio
+    async def test_crawl_falls_back_to_www(self, monkeypatch):
+        """裸域抛连接错误时，自动改用 www. 重试。"""
+        import httpx
+
+        from app.services.crawler import Crawler
+
+        tried: list[str] = []
+
+        async def _fake_fetch_final_url(self, url):
+            tried.append(url)
+            if "www." not in url:
+                raise httpx.ConnectError("bare domain unreachable")
+            return 200, "<html><body>ok</body></html>", url
+
+        monkeypatch.setattr(Crawler, "_fetch_final_url", _fake_fetch_final_url)
+
+        async def _fake_robots(self, url):
+            return True
+
+        monkeypatch.setattr(Crawler, "_respect_robots", _fake_robots)
+
+        async with Crawler() as crawler:
+            result = await crawler.crawl_site("https://iczrx.cn/")
+
+        assert tried == ["https://iczrx.cn/", "https://www.iczrx.cn/"], (
+            f"没有回退到 www：{tried}"
+        )
+        assert result.status == "success"
+
+
+class TestSiteUrlKeepsWww:
+    """站点网址存下来要保留 www.。
+
+    之前存的是 normalize_url 的结果（剥掉 www.），
+    结果用户填 https://www.iczrx.cn，存进去变成 https://iczrx.cn/，
+    抓取时连不上。编辑功能等于白做。
+    """
+
+    @pytest.mark.asyncio
+    async def test_create_keeps_www(self, client):
+        await _register(client)
+        r = await client.post(
+            "/api/sites",
+            json={"name": "带 www", "url": "https://www.iczrx.cn"},
+        )
+        assert r.status_code == 201
+        assert r.json()["url"] == "https://www.iczrx.cn/"
+
+    @pytest.mark.asyncio
+    async def test_patch_keeps_www(self, client):
+        await _register(client)
+        site = await _add_site(client)
+        r = await client.patch(
+            f"/api/sites/{site['id']}",
+            json={"url": "https://www.iczrx.cn"},
+        )
+        assert r.status_code == 200
+        assert r.json()["url"] == "https://www.iczrx.cn/"
+
+    @pytest.mark.asyncio
+    async def test_url_hash_still_dedupes_www_and_bare(self, client):
+        """去重不受影响：www 与裸域仍算同一个站。"""
+        await _register(client)
+        await _add_site(client, url="https://www.iczrx.cn", name="A")
+
+        r = await client.post(
+            "/api/sites",
+            json={"name": "B", "url": "https://iczrx.cn"},
+        )
+        assert r.status_code == 409, "裸域与 www 应该被认作同一个站点"
+
+
 class TestDetachedSiteCarriesFeedUrl:
     """_DetachedSite 是脱离 ORM 会话的快照，必须带上 feed_url。
 

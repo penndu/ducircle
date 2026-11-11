@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUserSession, DbSession
 from app.core.zh_sort import to_pinyin
-from app.core.security import normalize_url, site_hash
+from app.core.security import normalize_url, request_url, site_hash
 from app.models import Blacklist, Site, SiteRule, Tag
 
 router = APIRouter(prefix="/api/sites", tags=["友链管理"])
@@ -33,7 +33,10 @@ class SiteCreate(BaseModel):
         v = v.strip()
         if not v.startswith(("http://", "https://")):
             v = "https://" + v
-        normalized = normalize_url(v)
+        # 用 request_url 而不是 normalize_url：站点网址是拿去发请求的，
+        # 必须保留 www.——很多国内博客只在 www 上配了 DNS，裸域连不上。
+        # 去重靠 url_hash（site_hash 走的才是 normalize_url 那套）。
+        normalized = request_url(v)
         if not normalized:
             raise ValueError("URL 格式无效")
         return normalized
@@ -225,7 +228,8 @@ async def update_site(
 
     data = payload.model_dump(exclude_unset=True)
     if "url" in data and data["url"]:
-        data["url"] = normalize_url(data["url"])
+        # 保留 www.——见 SiteCreate.check_url 的说明
+        data["url"] = request_url(data["url"])
         data["url_hash"] = site_hash(data["url"])
     if "name" in data and data["name"]:
         data["name"] = data["name"].strip()

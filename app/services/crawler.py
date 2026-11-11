@@ -41,6 +41,35 @@ from app.parser.heuristic import parse_with_heuristic, looks_like_article
 FAILURE_THRESHOLD = 5
 
 
+def _with_www(url: str) -> str | None:
+    """给裸域地址加上 www. 前缀。
+
+    只处理 http/https 的根域名，不动子域名（blog.x.com 加 www 没意义）。
+    已经带 www 的返回 None（没有别的可试）。
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        return None
+    netloc = parts.netloc
+    if netloc.startswith("www.") or "." not in netloc:
+        return None
+    # 带端口的先摘出来
+    port = ""
+    if ":" in netloc:
+        host, port_text = netloc.rsplit(":", 1)
+        if port_text.isdigit():
+            netloc = host
+            port = f":{port_text}"
+    if netloc.count(".") != 1:
+        # blog.x.com 这种子域名，不加 www
+        return None
+    return urlunsplit(
+        (parts.scheme, f"www.{netloc}{port}", parts.path, parts.query, "")
+    )
+
+
 def _explain_failure(html: str) -> str:
     """给「解析不出内容」一个能指导下一步的说明。
 
@@ -152,12 +181,28 @@ class Crawler:
         try:
             status, html, final_url = await self._fetch_final_url(url)
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
-            return CrawlResult(
-                url=url,
-                status="failed",
-                error=f"{type(exc).__name__}: {url}",
-                duration_ms=int((time.monotonic() - started) * 1000),
-            )
+            # 裸域连不上就试 www.。
+            # 很多国内博客只在 www 上配了 DNS——存量数据里存的就是裸域，
+            # 不做这个回退就永远连不上。
+            fallback = _with_www(url)
+            if fallback and fallback != url:
+                try:
+                    status, html, final_url = await self._fetch_final_url(fallback)
+                    url = fallback
+                except Exception:  # noqa: BLE001
+                    return CrawlResult(
+                        url=url,
+                        status="failed",
+                        error=f"{type(exc).__name__}: {url}",
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                    )
+            else:
+                return CrawlResult(
+                    url=url,
+                    status="failed",
+                    error=f"{type(exc).__name__}: {url}",
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
         except Exception as exc:  # noqa: BLE001
             return CrawlResult(
                 url=url,
