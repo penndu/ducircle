@@ -26,6 +26,7 @@ from app.services.extractor import (
     needs_summary,
 )
 from app.services.llm import LLMClient, LLMError, parse_summary_response
+from app.services.summary_status import set_status
 from app.core.sql_compat import desc_nulls_last
 
 logger = logging.getLogger("ducircle.summary")
@@ -241,13 +242,28 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
     """为某用户批量生成待处理文章的摘要。
 
     优先级：没摘要的优先、正文可能更新的其次。
+
+    过程中会把进度写进 Redis（summary_status），
+    前端轮询这个状态就能看到「跑到第几篇、失败没、为什么失败」——
+    后台任务的异常会被 except 吞掉，不主动记状态的话用户只能干等。
     """
     results = {"generated": 0, "skipped": 0, "quota_exceeded": False,
-               "key_required": False}
+               "key_required": False, "error": None}
+
+    await set_status(
+        user_id,
+        {"state": "running", "generated": 0, "skipped": 0,
+         "total": limit, "error": None},
+    )
 
     async with session_scope() as db, as_tenant_async(user_id):
         user = await db.get(User, user_id)
         if user is None or not user.ai_enabled:
+            await set_status(
+                user_id,
+                {"state": "failed", "generated": 0, "skipped": 0,
+                 "total": 0, "error": "AI 摘要功能未启用"},
+            )
             return results
 
         posts = (
@@ -264,6 +280,11 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
         ).scalars().all()
 
         if not posts:
+            await set_status(
+                user_id,
+                {"state": "done", "generated": 0, "skipped": 0,
+                 "total": 0, "error": None},
+            )
             return results
 
         for post in posts:
@@ -276,13 +297,40 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
             except QuotaExceeded as exc:
                 logger.info("用户 %d 触发额度上限：%s", user_id, exc)
                 results["quota_exceeded"] = True
+                results["error"] = str(exc)
                 break
-            except AIKeyRequired:
+            except AIKeyRequired as exc:
                 # 用户没填自己的 Key，生成不了。
                 # 不是错误，是配置缺失——记一笔就跳过，继续处理下一个用户。
                 logger.info("用户 %d 未配置 API Key，跳过摘要", user_id)
                 results["key_required"] = True
+                results["error"] = str(exc)
                 break
+            except Exception as exc:  # noqa: BLE001
+                # 单篇失败不该让整批中断，但要让用户看到发生了什么
+                logger.exception("用户 %d 生成摘要时出错", user_id)
+                results["error"] = f"{type(exc).__name__}: {exc}"
+                break
+
+            # 每篇都更新一次进度，用户轮询能看到在动
+            await set_status(
+                user_id,
+                {"state": "running", "generated": results["generated"],
+                 "skipped": results["skipped"], "total": len(posts),
+                 "error": None},
+            )
+
+    # 收尾写终态
+    if results["error"] and not results["key_required"]:
+        state = "failed"
+    else:
+        state = "done"
+    await set_status(
+        user_id,
+        {"state": state, "generated": results["generated"],
+         "skipped": results["skipped"], "total": len(posts),
+         "error": results["error"]},
+    )
 
     return results
 

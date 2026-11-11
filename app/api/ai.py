@@ -134,6 +134,21 @@ async def trigger_summarize(
     return SummarizeResultOut(**result)
 
 
+@router.get("/batch-status", summary="摘要生成的状态")
+async def batch_summary_status(user: CurrentUserSession) -> dict:
+    """批量摘要任务的进度与结果。
+
+    前端轮询这个接口显示「跑到第几篇、成不成功、为什么失败」，
+    而不是只弹一句「已触发」就让人干等。
+    """
+    from app.services.summary_status import get_status
+
+    status = await get_status(user.id)
+    if status is None:
+        return {"state": "idle"}
+    return status
+
+
 @router.post("/batch", summary="批量生成待处理文章的摘要")
 async def batch_summarize(
     user: CurrentUserSession,
