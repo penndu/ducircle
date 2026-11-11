@@ -101,6 +101,11 @@ def describe_cron(expression: str) -> str:
         hours = hour.split(",")
         if len(hours) == 2:
             return f"每天 {hours[0]} 点和 {hours[1]} 点"
+        if len(hours) > 2:
+            # 平台默认的「0 0,6,12,18 * * *」属于这一类。
+            # 只列前三个，四个全列太长反而不好读。
+            shown = "、".join(hours[:3])
+            return f"每天 {shown} 点（每天 {len(hours)} 次）"
 
     # 每周几
     if week != "*" and day == "*" and month == "*":

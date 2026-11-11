@@ -68,4 +68,9 @@ class User(Base, TimestampMixin):
         return bool(self.ai_api_key)
 
     def quota_limit(self, default: int) -> int:
-        return self.ai_daily_quota_override or default
+        # 显式判 None：写成 `override or default` 的话，
+        # override=0 会被当成「没设置」而回落到 default。
+        # 现在平台默认就是 0（无免费额度），这个区别很关键。
+        if self.ai_daily_quota_override is None:
+            return default
+        return self.ai_daily_quota_override

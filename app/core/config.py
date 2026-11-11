@@ -62,8 +62,10 @@ class Settings(BaseSettings):
     ai_platform_provider: str = "siliconflow"
     ai_platform_api_key: str = ""
     ai_platform_model: str = "Qwen/Qwen3-8B"
-    # 每用户每日免费摘要篇数
-    ai_daily_quota: int = 10
+    # 每用户每日免费摘要篇数。0 = 平台不提供免费额度，
+    # 用户必须自己填 API Key 才能生成摘要。
+    # 保留这个开关是为了管理员仍可以给个别用户单独开额度。
+    ai_daily_quota: int = 0
     # 送入模型的正文最大字符数
     ai_max_chars: int = 8000
     ai_timeout: int = 60

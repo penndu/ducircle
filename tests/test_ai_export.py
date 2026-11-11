@@ -42,10 +42,60 @@ def make_user(user_id: int, **kwargs) -> "User":
 
 
 class TestQuota:
-    """额度控制。这是唯一直接花钱的地方，必须严格。"""
+    """额度控制。这是唯一直接花钱的地方，必须严格。
+
+    平台默认不提供免费额度（AI_DAILY_QUOTA=0），
+    用户必须自带 API Key 才能生成摘要。
+    """
+
+    @pytest.mark.asyncio
+    async def test_platform_default_has_no_free_quota(self, db):
+        """平台默认额度为 0——没填自己的 Key 就用不了。"""
+        from app.core.config import get_settings
+
+        assert get_settings().ai_daily_quota == 0, (
+            "平台默认应提供 0 篇免费额度，AI 摘要需用户自备 Key"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_key_and_no_quota_blocks(self, db):
+        """既没自带 Key 又没额度 → 拒绝，并且提示去填 Key。"""
+        from app.core.tenant import set_tenant
+        from app.services.ai_summary import check_quota
+
+        set_tenant(1)
+        user = make_user(1, ai_enabled=True)
+        db.add(user)
+        await db.commit()
+
+        allowed, used, limit = await check_quota(user, db)
+        assert allowed is False, "没有 Key 又没有额度时必须拒绝"
+        assert limit == 0
+        set_tenant(None)
+
+    @pytest.mark.asyncio
+    async def test_quota_limit_zero_is_not_treated_as_unset(self, db):
+        """override=0 必须生效，不能回落到平台默认值。
+
+        写成 `override or default` 的话，0 会被当成「没设置」，
+        平台默认额度一旦调大，用户就会莫名其妙拿到额度。
+        """
+        from app.core.tenant import set_tenant
+        from app.services.ai_summary import check_quota
+
+        set_tenant(1)
+        user = make_user(1, ai_enabled=True, ai_daily_quota_override=0)
+        db.add(user)
+        await db.commit()
+
+        allowed, _, limit = await check_quota(user, db)
+        assert limit == 0, "override=0 生效，额度就是 0"
+        assert allowed is False
+        set_tenant(None)
 
     @pytest.mark.asyncio
     async def test_platform_quota_counts(self, db):
+        """管理员仍可给个别用户单独开额度，开了就正常计数。"""
         from datetime import date
 
         from app.core.tenant import set_tenant
@@ -53,7 +103,7 @@ class TestQuota:
         from app.services.ai_summary import check_quota
 
         set_tenant(1)
-        user = make_user(1, ai_enabled=True)
+        user = make_user(1, ai_enabled=True, ai_daily_quota_override=10)
         db.add(user)
         db.add(Site(id=1, user_id=1, name="s", url="https://s.com",
                     url_hash="h1", source="manual"))
@@ -63,6 +113,7 @@ class TestQuota:
 
         allowed, used, limit = await check_quota(user, db)
         assert allowed is True and used == 0
+        assert limit == 10
 
         # 加一条额度记录
         db.add(AIQuotaLog(

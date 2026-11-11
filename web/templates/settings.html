@@ -45,6 +45,17 @@
     为每篇文章生成摘要和推荐分，帮你快速判断值不值得点开。
   </p>
 
+  {# 平台不提供免费额度：没填 Key 就用不了，这里必须说清楚 #}
+  {% if not current_user.has_own_ai_key %}
+  <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200">
+    <p class="text-sm text-amber-900 font-medium mb-1">需要你自己的 API Key</p>
+    <p class="text-xs text-amber-800 leading-relaxed">
+      平台不再提供免费摘要额度。填一个自己的 Key 后即可生成摘要，
+      费用直接由服务商向你收取，额度你自己掌握，不受平台限制。
+    </p>
+  </div>
+  {% endif %}
+
   <div class="space-y-3" id="ai-fields">
     <div>
       <label class="block text-sm text-gray-700 mb-1.5">模型服务商</label>
@@ -67,14 +78,15 @@
     </div>
 
     <div>
-      <label class="block text-sm text-gray-700 mb-1.5">API Key</label>
-      <input id="ai-key" type="password" value="" placeholder="{{ '已配置（留空表示不修改）' if current_user.has_own_ai_key else '留空则用平台额度' }}"
+      <label class="block text-sm text-gray-700 mb-1.5">API Key<span class="text-red-500"> *</span></label>
+      <input id="ai-key" type="password" value=""
+             placeholder="{{ '已配置（留空表示不修改）' if current_user.has_own_ai_key else '必填：粘贴你从服务商拿到的 Key' }}"
              class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
       <p class="mt-1 text-xs text-gray-400">
         {% if current_user.has_own_ai_key %}
-          当前使用你自己的 Key，不消耗平台额度。
+          当前使用你自己的 Key，不受平台额度限制。Key 只保存在你自己的账号里。
         {% else %}
-          当前使用平台额度，每天最多 {{ quota }} 篇。
+          必填。没有 Key 就无法生成摘要——平台不提供免费额度。
         {% endif %}
       </p>
     </div>
@@ -93,12 +105,23 @@
     频率越高更新越及时，但也越频繁地访问对方的服务器。
   </p>
 
+  <div class="mb-4 px-4 py-3 rounded-lg bg-gray-50 border border-gray-200">
+    <p class="text-xs text-gray-600 leading-relaxed">
+      <span class="font-medium text-gray-900">平台默认频率</span><br>
+      文章采集：{{ default_crawl_cron_desc or default_crawl_cron }}
+      <span class="text-gray-400 mono">（{{ default_crawl_cron }}）</span><br>
+      友链页检测：{{ default_link_cron_desc or default_link_cron }}
+      <span class="text-gray-400 mono">（{{ default_link_cron }}）</span><br>
+      <span class="text-gray-400">留空「使用平台默认」即按上面的频率执行。</span>
+    </p>
+  </div>
+
   <div class="space-y-4">
     <div>
       <label class="block text-sm text-gray-700 mb-1.5">文章采集频率</label>
       <select id="crawl-cron" onchange="syncCustom('crawl')"
               class="w-full px-3 py-2 rounded border border-gray-300 bg-white focus:border-gray-900 focus:outline-none">
-        <option value="">使用平台默认</option>
+        <option value="">使用平台默认（{{ default_crawl_cron_desc or default_crawl_cron }}）</option>
         {% for label, value, hint in cron_presets %}
         <option value="{{ value }}" {% if current_user.crawl_cron == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
@@ -116,7 +139,7 @@
       <label class="block text-sm text-gray-700 mb-1.5">友链采集频率</label>
       <select id="link-page-cron" onchange="syncCustom('link')"
               class="w-full px-3 py-2 rounded border border-gray-300 bg-white focus:border-gray-900 focus:outline-none">
-        <option value="">使用平台默认</option>
+        <option value="">使用平台默认（{{ default_link_cron_desc or default_link_cron }}）</option>
         {% for label, value, hint in cron_presets %}
         <option value="{{ value }}" {% if current_user.link_page_cron == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}

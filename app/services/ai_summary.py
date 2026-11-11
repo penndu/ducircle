@@ -59,6 +59,15 @@ class QuotaExceeded(Exception):
     """平台额度用尽。"""
 
 
+class AIKeyRequired(Exception):
+    """用户没填自己的 API Key，而平台又不提供免费额度。
+
+    与 QuotaExceeded 分开是因为提示完全不同：
+    前者是「今天用完了，明天再来」，
+    后者是「填个 Key 就能用」——后者是可操作的引导。
+    """
+
+
 async def check_quota(user: User, db) -> tuple[bool, int, int]:
     """检查额度。返回 (是否可用, 今日已用, 每日上限)。
 
@@ -70,6 +79,9 @@ async def check_quota(user: User, db) -> tuple[bool, int, int]:
         return False, 0, limit
     if user.has_own_ai_key:
         return True, 0, limit  # 自带 Key 不受限
+    # 平台不提供免费额度（默认额度为 0），必须自带 Key。
+    if limit <= 0:
+        return False, 0, limit
 
     used = (
         await db.execute(
@@ -143,6 +155,12 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
     # ---- 额度检查 ----
     allowed, used, limit = await check_quota(user, db)
     if not allowed:
+        if limit <= 0:
+            # 平台不提供免费额度，唯一的路是自己填 Key
+            raise AIKeyRequired(
+                "生成摘要需要你自己的 API Key。到「设置 → AI 摘要」填一个，"
+                "填完立即生效，额度由你自己掌握。"
+            )
         raise QuotaExceeded(f"今日额度已用完（{used}/{limit}）")
 
     # ---- 调用模型 ----
@@ -224,7 +242,8 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
 
     优先级：没摘要的优先、正文可能更新的其次。
     """
-    results = {"generated": 0, "skipped": 0, "quota_exceeded": False}
+    results = {"generated": 0, "skipped": 0, "quota_exceeded": False,
+               "key_required": False}
 
     async with session_scope() as db, as_tenant_async(user_id):
         user = await db.get(User, user_id)
@@ -258,6 +277,12 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
                 logger.info("用户 %d 触发额度上限：%s", user_id, exc)
                 results["quota_exceeded"] = True
                 break
+            except AIKeyRequired:
+                # 用户没填自己的 Key，生成不了。
+                # 不是错误，是配置缺失——记一笔就跳过，继续处理下一个用户。
+                logger.info("用户 %d 未配置 API Key，跳过摘要", user_id)
+                results["key_required"] = True
+                break
 
     return results
 
@@ -267,9 +292,14 @@ async def summarize_all_pending(limit_per_user: int = 10) -> dict:
     from app.core.tenant import no_tenant_filter_async
 
     settings = get_settings()
-    if not settings.ai_enabled or not settings.ai_platform_api_key:
-        logger.info("平台未配置 AI，跳过摘要任务")
-        return {"users": 0, "generated": 0, "quota_exceeded_users": 0}
+    if not settings.ai_enabled:
+        logger.info("AI 摘要功能未启用，跳过摘要任务")
+        return {
+            "users": 0,
+            "generated": 0,
+            "quota_exceeded_users": 0,
+            "key_required_users": 0,
+        }
 
     async with session_scope() as db, no_tenant_filter_async():
         users = (
@@ -278,21 +308,25 @@ async def summarize_all_pending(limit_per_user: int = 10) -> dict:
 
     total_generated = 0
     quota_hit = 0
+    key_missing = 0
 
     for user_id in users:
         result = await summarize_pending_for_user(user_id, limit=limit_per_user)
         total_generated += result["generated"]
         if result["quota_exceeded"]:
             quota_hit += 1
+        if result.get("key_required"):
+            key_missing += 1
 
     logger.info(
-        "摘要任务完成：%d 用户，生成 %d 篇，%d 用户触发额度上限",
-        len(users), total_generated, quota_hit,
+        "摘要任务完成：%d 用户，生成 %d 篇，%d 用户触发额度上限，%d 用户未配置 Key",
+        len(users), total_generated, quota_hit, key_missing,
     )
     return {
         "users": len(users),
         "generated": total_generated,
         "quota_exceeded_users": quota_hit,
+        "key_required_users": key_missing,
     }
 
 

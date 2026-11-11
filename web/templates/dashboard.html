@@ -367,6 +367,14 @@
           {% if ai.has_own_key %}<span class="ds-badge">自有 Key</span>
           {% elif ai.remaining is not none %}<span class="ds-badge">今日剩 {{ ai.remaining }}</span>{% endif %}
         </div>
+        {% if not ai.has_own_key and ai.key_required %}
+        {# 平台不提供免费额度：没 Key 就用不了，卡片直接说清楚并给入口 #}
+        <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
+          平台不提供免费摘要额度。填一个你自己的 API Key 就能用，
+          费用由服务商直接向你收取。
+        </p>
+        <a class="ds-btn ds-btn-primary ds-btn-sm" style="width:100%" href="/web/settings">去填写 API Key</a>
+        {% else %}
         <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
           给文章写句摘要、打个推荐分，先挑值得读的看。
         </p>
@@ -376,6 +384,7 @@
         </p>
         {% if stats.posts.total - stats.posts.summarized > 0 %}
         <button onclick="batchSummary()" class="ds-btn ds-btn-ghost ds-btn-sm" style="width:100%">生成剩余文章的摘要</button>
+        {% endif %}
         {% endif %}
       </section>
       {% endif %}
@@ -462,7 +471,7 @@ async function initCrawlStatus() {
 }
 
 async function batchSummary() {
-  if (!confirm('将为所有未摘要的文章生成摘要。\n这会消耗 AI 额度，通常需要几分钟。')) return;
+  if (!confirm('将为所有未摘要的文章生成摘要。\n这会消耗你自己 API Key 的额度，通常需要几分钟。')) return;
   try {
     const data = await api('/api/ai/batch?limit=50', { method: 'POST' });
     showToast(data.message || '已开始');

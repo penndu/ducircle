@@ -51,6 +51,10 @@ async def _ai_state(user: User, db) -> dict:
         "daily_limit": limit,
         "used": used,
         "remaining": None if user.has_own_ai_key else max(0, limit - used),
+        # 平台不提供免费额度且用户没填自己的 Key —— 概览页据此引导去设置页
+        "key_required": (
+            not user.has_own_ai_key and limit <= 0 and user.ai_enabled
+        ),
     }
 
 
@@ -371,16 +375,22 @@ async def settings_page(
     from app.core.config import get_settings
 
     ctx = await _page_context(request, user, await nav_counts(db), "settings")
-    from app.core.cron import CRON_PRESETS
+    from app.core.cron import CRON_PRESETS, describe_cron
     from app.services.llm import PROVIDER_DISPLAY_NAMES
 
+    settings = get_settings()
     ctx.update(
-        quota=user.quota_limit(get_settings().ai_daily_quota),
+        quota=user.quota_limit(settings.ai_daily_quota),
         providers=list(PROVIDER_DISPLAY_NAMES),
         provider_names=PROVIDER_DISPLAY_NAMES,
         # 采集频率预设
         cron_presets=CRON_PRESETS,
         cron_preset_values=[v for _, v, _ in CRON_PRESETS],
+        # 平台默认频率：用户不填就按这个跑，得让人看得见。
+        default_crawl_cron=settings.crawl_cron,
+        default_crawl_cron_desc=describe_cron(settings.crawl_cron),
+        default_link_cron=settings.link_page_cron,
+        default_link_cron_desc=describe_cron(settings.link_page_cron),
     )
     return render(request, "settings.html", ctx)
 

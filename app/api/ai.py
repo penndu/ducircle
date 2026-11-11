@@ -8,7 +8,11 @@ from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserSession, DbSession
 from app.models import AIQuotaLog, Post
-from app.services.ai_summary import QuotaExceeded, summarize_single
+from app.services.ai_summary import (
+    AIKeyRequired,
+    QuotaExceeded,
+    summarize_single,
+)
 
 router = APIRouter(prefix="/api/ai", tags=["AI 摘要"])
 
@@ -19,6 +23,8 @@ class QuotaOut(BaseModel):
     used_today: int
     daily_limit: int
     remaining: int
+    # 平台不提供免费额度时为 True——前端据此提示「去填 Key」
+    key_required: bool = False
 
 
 class SummarizeResultOut(BaseModel):
@@ -48,6 +54,9 @@ async def my_quota(user: CurrentUserSession, db: DbSession) -> QuotaOut:
         used_today=used,
         daily_limit=limit,
         remaining=remaining,
+        key_required=(
+            not user.has_own_ai_key and limit <= 0 and user.ai_enabled
+        ),
     )
 
 
@@ -114,6 +123,9 @@ async def trigger_summarize(
     user_model = await db.get(UserModel, user.id)
     try:
         result = await summarize_single(user.id, post_id)
+    except AIKeyRequired as exc:
+        # 403 而不是 429：这不是「等一会儿再来」，是「去填个 Key」
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except QuotaExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except ValueError as exc:
@@ -133,7 +145,19 @@ async def batch_summarize(
 
     放后台执行——可能要跑几分钟，用户不该干等。
     """
-    from app.services.ai_summary import summarize_pending_for_user
+    from app.services.ai_summary import check_quota, summarize_pending_for_user
+
+    # 前置拦截：平台不提供免费额度时，没填 Key 就直接说清楚，
+    # 别让用户点了按钮等半天，最后看到一句「生成失败」。
+    allowed, used, limit = await check_quota(user, db)
+    if not allowed and limit <= 0 and not user.has_own_ai_key:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "生成摘要需要你自己的 API Key。到「设置 → AI 摘要」填一个，"
+                "填完立即生效，额度由你自己掌握。"
+            ),
+        )
 
     background.add_task(summarize_pending_for_user, user.id, limit)
     return {"ok": True, "message": f"已开始为最多 {limit} 篇文章生成摘要"}
