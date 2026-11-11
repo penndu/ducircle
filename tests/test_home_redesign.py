@@ -76,6 +76,17 @@ class TestLandingPage:
         assert "cdn.jsdelivr.net/npm/tailwindcss" not in r.text
 
     @pytest.mark.asyncio
+    async def test_landing_footer_brand_links(self, client_with_app):
+        """页脚要有「杜老师说旗下服务」标识和回主站的跳转链接。"""
+        client, _ = client_with_app
+        html = (await client.get("/")).text
+        assert "杜老师说旗下服务" in html
+        assert 'href="https://dusays.com/"' in html
+        assert "杜老师说 →" in html
+        # 旗下服务徽标指向服务平台汇总页
+        assert 'href="https://dusays.com/posts/530/"' in html
+
+    @pytest.mark.asyncio
     async def test_landing_survives_stats_failure(self, client_with_app, monkeypatch):
         """统计查询挂了也要能看到首页，只是隐藏数字条。"""
         from contextlib import asynccontextmanager
