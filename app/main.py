@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.ratelimit_middleware import RateLimitMiddleware, TenantContextMiddleware
@@ -118,29 +118,50 @@ async def health() -> dict:
     }
 
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def index() -> HTMLResponse:
-    return HTMLResponse(
-        """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>友链朋友圈</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@3/dist/tailwind.min.css">
-</head>
-<body class="bg-gray-50 min-h-screen flex items-center justify-center">
-<main class="max-w-lg w-full p-8">
-  <h1 class="text-2xl font-medium text-gray-900 mb-2">友链朋友圈</h1>
-  <p class="text-gray-600 mb-8">面向博客主的公开友链聚合服务</p>
-  <div class="flex gap-3">
-    <a href="/docs" class="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-700">API 文档</a>
-    <a href="/web/login" class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50">登录后台</a>
-  </div>
-</main>
-</body>
-</html>"""
-    )
+async def _public_overview() -> dict:
+    """公开首页上的全站数字。
+
+    只取两个总数，不返回任何明细。匿名请求没有租户上下文，
+    这里仍显式豁免：将来中间件若给未登录请求绑定默认租户，
+    统计也不会突然变成 0。
+    查询失败时返回空值，落地页照常渲染——首页不该因为数据库
+    抖动就 500。
+    """
+    from sqlalchemy import func, select
+
+    from app.core.tenant import no_tenant_filter_async
+    from app.db import session_scope
+    from app.models import Post, Site
+
+    try:
+        async with no_tenant_filter_async():
+            async with session_scope() as db:
+                sites = (
+                    await db.execute(
+                        select(func.count(Site.id)).where(
+                            Site.deleted_at.is_(None)
+                        )
+                    )
+                ).scalar_one()
+                posts = (
+                    await db.execute(
+                        select(func.count(Post.id)).where(
+                            Post.deleted_at.is_(None)
+                        )
+                    )
+                ).scalar_one()
+        return {"sites": sites, "posts": posts}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("公开统计读取失败，首页降级为静态展示: %s", exc)
+        return {"sites": None, "posts": None}
+
+
+@app.get("/", include_in_schema=False)
+async def index(request: Request) -> Response:
+    """公开落地页。模板自带样式，不依赖 Tailwind CDN。"""
+    from app.web import render
+
+    return render(request, "landing.html", {"public": await _public_overview()})
 
 
 @app.exception_handler(RequestValidationError)

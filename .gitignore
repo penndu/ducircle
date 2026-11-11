@@ -12,3 +12,5 @@ logs/
 
 # WorkBuddy 本地记忆目录，不进版本库
 .workbuddy/
+# 本地静态预览（由脚本生成，不进版本库）
+.preview/

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="友链朋友圈：填一个友链页地址，自动发现 RSS、定时抓取更新，再用开放 API 把朋友们的文章流放回你自己的博客。">
+<title>{{ app_name }} · 把友链变成一条时间线</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f6b54'/><text x='50' y='68' text-anchor='middle' font-size='58' fill='white'>友</text></svg>">
+<style>
+:root{
+  --bg:#f7f8f5; --surface:#ffffff; --ink:#17201c; --ink-2:#3c4741;
+  --muted:#6d7771; --faint:#98a29c; --line:#e4e9e3;
+  --brand:#1f6b54; --brand-dark:#175440; --brand-soft:#e9f3ee;
+  --accent:#e6a23c; --accent-soft:#fdf3e3;
+  --shadow:0 1px 2px rgba(23,32,28,.04), 0 12px 32px rgba(23,32,28,.05);
+  --radius:16px;
+  --font:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.65}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.mono{font-family:var(--mono)}
+
+/* ---------- 导航 ---------- */
+.nav{position:sticky;top:0;z-index:20;background:rgba(247,248,245,.86);backdrop-filter:saturate(160%) blur(14px);border-bottom:1px solid rgba(228,233,227,.9)}
+.nav-in{height:66px;display:flex;align-items:center;gap:32px}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em;font-size:16px}
+.brand-mark{width:30px;height:30px;border-radius:9px;background:var(--brand);display:grid;place-items:center;color:#fff;font-size:15px;font-weight:700;box-shadow:0 4px 12px rgba(31,107,84,.22)}
+.nav-links{display:flex;gap:26px;margin-left:auto;font-size:14px;color:var(--muted)}
+.nav-links a{transition:color .18s}
+.nav-links a:hover{color:var(--brand)}
+.nav-actions{display:flex;align-items:center;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;padding:10px 18px;font-size:14px;font-weight:550;transition:transform .18s,box-shadow .18s,background .18s;border:1px solid transparent;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:var(--brand);color:#fff;box-shadow:0 6px 18px rgba(31,107,84,.2)}
+.btn-primary:hover{background:var(--brand-dark);box-shadow:0 10px 24px rgba(31,107,84,.26)}
+.btn-ghost{border-color:var(--line);background:var(--surface);color:var(--ink-2)}
+.btn-ghost:hover{border-color:#cdd8d0}
+.btn-sm{padding:8px 14px;font-size:13px}
+
+/* ---------- Hero ---------- */
+.hero{position:relative;overflow:hidden;padding:82px 0 68px}
+.hero::before{content:"";position:absolute;inset:-140px -10% auto 40%;height:520px;background:radial-gradient(ellipse at center,rgba(31,107,84,.10),transparent 65%);pointer-events:none}
+.hero::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(31,107,84,.13) .7px,transparent .7px);background-size:22px 22px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.5),transparent 72%);pointer-events:none;opacity:.5}
+.hero-in{position:relative;z-index:1;display:grid;grid-template-columns:1.02fr .98fr;gap:64px;align-items:center}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--brand-soft);color:var(--brand-dark);border:1px solid #d5e9de;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;letter-spacing:.01em}
+.eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--brand);display:block}
+h1{font-size:clamp(36px,4.4vw,56px);line-height:1.2;letter-spacing:-.035em;margin:22px 0 18px;font-weight:700}
+h1 em{font-style:normal;color:var(--brand);position:relative;white-space:nowrap}
+h1 em::after{content:"";position:absolute;left:0;right:0;bottom:2px;height:9px;background:rgba(230,162,60,.28);border-radius:6px;z-index:-1}
+.hero p.lead{font-size:16.5px;color:var(--muted);max-width:470px;margin:0 0 30px;line-height:1.85}
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap}
+.hero-note{margin-top:22px;font-size:13px;color:var(--faint);display:flex;align-items:center;gap:8px}
+.hero-note svg{flex-shrink:0}
+
+/* 文章流示意卡 */
+.mock{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:0 2px 4px rgba(23,32,28,.04),0 28px 70px rgba(23,32,28,.10);padding:0;transform:rotate(-.6deg)}
+.mock-top{display:flex;align-items:center;gap:7px;padding:14px 18px;border-bottom:1px solid var(--line);background:#fcfdfb;border-radius:19px 19px 0 0}
+.mock-dot{width:9px;height:9px;border-radius:50%;background:#e0e5df}
+.mock-dot:first-child{background:#eab0a4}.mock-dot:nth-child(2){background:#ecd39a}.mock-dot:nth-child(3){background:#b7dbc6}
+.mock-title{margin-left:8px;font-size:12px;color:var(--faint);font-family:var(--mono)}
+.mock-live{margin-left:auto;font-size:11px;color:var(--brand);background:var(--brand-soft);padding:3px 9px;border-radius:999px;font-weight:600}
+.mock-body{padding:8px 18px 18px}
+.mock-item{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid #f0f3ef}
+.mock-item:last-child{border-bottom:0}
+.mock-ava{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:13px;font-weight:700;flex-shrink:0;color:#fff}
+.mock-txt{flex:1;min-width:0}
+.mock-item b{display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mock-line{height:6px;border-radius:4px;background:#eef1ed;margin-bottom:6px}
+.mock-line.w1{width:92%}.mock-line.w2{width:64%;height:5px;background:#f3f5f2}
+.mock-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:7px}
+.mock-score{font-family:var(--mono);color:var(--accent);font-weight:600}
+.float-card{position:absolute;left:-26px;bottom:-24px;background:var(--surface);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:12px 16px;display:flex;align-items:center;gap:11px;transform:rotate(2deg)}
+.float-ic{width:32px;height:32px;border-radius:9px;background:var(--brand-soft);display:grid;place-items:center;color:var(--brand)}
+.float-card b{display:block;font-size:13px;line-height:1.35}
+.float-card span{font-size:11.5px;color:var(--muted)}
+
+/* ---------- 数据条 ---------- */
+.stats-band{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.6)}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);padding:26px 0}
+.stat{padding:0 26px;border-left:1px solid var(--line)}
+.stat:first-child{border-left:0;padding-left:0}
+.stat-num{font-family:var(--mono);font-size:30px;font-weight:650;letter-spacing:-.04em;line-height:1.2}
+.stat-num small{font-size:14px;color:var(--muted);margin-left:3px;font-weight:500}
+.stat-label{font-size:12.5px;color:var(--muted);margin-top:4px}
+
+/* ---------- 通用区块 ---------- */
+section.block{padding:88px 0}
+.section-head{max-width:620px;margin-bottom:44px}
+.section-kicker{font-size:12.5px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--brand);font-family:var(--mono)}
+.section-head h2{font-size:clamp(27px,3vw,36px);letter-spacing:-.03em;line-height:1.3;margin:12px 0 12px;font-weight:700}
+.section-head p{color:var(--muted);font-size:15.5px;margin:0;line-height:1.8}
+
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.feature{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 22px;transition:transform .2s,box-shadow .2s,border-color .2s}
+.feature:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#d5e2d9}
+.fic{width:42px;height:42px;border-radius:12px;background:var(--brand-soft);display:grid;place-items:center;color:var(--brand);margin-bottom:18px}
+.feature:nth-child(2) .fic{background:#eef1fb;color:#4a5c9e}
+.feature:nth-child(3) .fic{background:var(--accent-soft);color:#b87b1c}
+.feature:nth-child(4) .fic{background:#f6edf3;color:#96547b}
+.feature h3{font-size:16px;margin:0 0 9px;font-weight:650;letter-spacing:-.01em}
+.feature p{font-size:13.5px;color:var(--muted);margin:0;line-height:1.8}
+
+.steps{background:#fff;border:1px solid var(--line);border-radius:20px;display:grid;grid-template-columns:repeat(3,1fr);overflow:hidden}
+.step{padding:34px 30px;border-left:1px solid var(--line);position:relative}
+.step:first-child{border-left:0}
+.step-n{font-family:var(--mono);font-size:12px;color:var(--brand);font-weight:650;letter-spacing:.08em}
+.step h3{font-size:17px;margin:14px 0 9px;font-weight:650}
+.step p{font-size:13.5px;color:var(--muted);margin:0;line-height:1.8}
+.step code{font-family:var(--mono);font-size:12px;background:var(--brand-soft);color:var(--brand-dark);padding:2px 6px;border-radius:5px}
+.step::after{content:"→";position:absolute;right:-10px;top:38px;color:#c5d1c9;font-size:19px;z-index:1;background:#fff;border-radius:50%;width:20px;height:20px;display:grid;place-items:center}
+.step:last-child::after{display:none}
+
+.api-grid{display:grid;grid-template-columns:.92fr 1.08fr;gap:48px;align-items:center}
+.api-list{list-style:none;padding:0;margin:26px 0 0}
+.api-list li{display:flex;gap:12px;padding:10px 0;font-size:14px;color:var(--ink-2);align-items:flex-start}
+.api-list svg{flex-shrink:0;margin-top:4px;color:var(--brand)}
+.code{background:#16201c;border-radius:16px;padding:24px;box-shadow:0 20px 50px rgba(22,32,28,.18);color:#dfe9e2;overflow:auto}
+.code-top{display:flex;align-items:center;gap:6px;margin-bottom:18px}
+.code-top span{width:9px;height:9px;border-radius:50%;background:#3d4a43}
+.code-top b{margin-left:auto;font-family:var(--mono);font-size:11px;color:#7e8f85;font-weight:500}
+.code pre{margin:0;font-family:var(--mono);font-size:12.8px;line-height:2.0;white-space:pre-wrap;word-break:break-all}
+.code .c-cmd{color:#8fd6b4}.code .c-url{color:#f0c784}.code .c-key{color:#a9c7f5}.code .c-dim{color:#6f8076}
+
+.cta{background:var(--brand);border-radius:22px;padding:52px 48px;display:flex;align-items:center;justify-content:space-between;gap:36px;position:relative;overflow:hidden;margin-bottom:88px}
+.cta::before{content:"";position:absolute;right:-60px;top:-120px;width:420px;height:420px;border:1px solid rgba(255,255,255,.14);border-radius:50%}
+.cta::after{content:"";position:absolute;right:20px;top:-60px;width:300px;height:300px;border:1px solid rgba(255,255,255,.12);border-radius:50%}
+.cta h2{font-size:29px;color:#fff;margin:0 0 10px;letter-spacing:-.025em;font-weight:700}
+.cta p{color:rgba(255,255,255,.8);margin:0;font-size:14.5px}
+.cta .btn{background:#fff;color:var(--brand-dark);position:relative;z-index:1;box-shadow:none;padding:12px 22px}
+.cta .btn:hover{background:#f2f8f4}
+
+footer{border-top:1px solid var(--line);padding:28px 0 40px;font-size:13px;color:var(--faint)}
+.foot-in{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.foot-in a:hover{color:var(--brand)}
+.foot-links{display:flex;gap:20px;margin-left:auto}
+
+@media (max-width:960px){
+  .hero-in{grid-template-columns:1fr;gap:48px}
+  .hero{padding:60px 0 48px}
+  .mock{max-width:560px}
+  .grid-4{grid-template-columns:repeat(2,1fr)}
+  .api-grid{grid-template-columns:1fr;gap:30px}
+  .cta{flex-direction:column;align-items:flex-start;padding:38px 32px}
+}
+@media (max-width:680px){
+  .wrap{padding:0 18px}
+  .nav-links{display:none}
+  .nav-in{gap:12px}
+  .nav-actions{margin-left:auto}
+  .nav-actions .btn-ghost{display:none}
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:22px 0;padding:22px 0}
+  .stat{padding:0 14px}
+  .stat:nth-child(3){border-left:0;padding-left:0}
+  section.block{padding:60px 0}
+  .grid-4{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr}
+  .step{border-left:0;border-top:1px solid var(--line);padding:26px 24px}
+  .step:first-child{border-top:0}
+  .step::after{display:none}
+  .float-card{left:4px;bottom:-20px}
+  .foot-links{margin-left:0;width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="/"><span class="brand-mark">友</span><span>{{ app_name }}</span></a>
+    <nav class="nav-links">
+      <a href="#features">能做什么</a>
+      <a href="#how">怎么用</a>
+      <a href="#api">接入 API</a>
+      <a href="/docs">文档</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="btn btn-ghost btn-sm" href="/web/login">登录</a>
+      <a class="btn btn-primary btn-sm" href="/web/register">免费开始</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap hero-in">
+      <div>
+        <span class="eyebrow"><i></i>面向博客主的友链聚合服务</span>
+        <h1>把友链，<br>变成<em>一条时间线</em>。</h1>
+        <p class="lead">
+          填一个友链页地址，自动认出里面的博客、找到 RSS、定时把新文章收进来。
+          再用一个 API，把朋友们的更新放回到你自己的博客上。
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="/web/register">添加第一个友链页
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn-ghost" href="#how">先看看怎么用</a>
+        </div>
+        <p class="hero-note">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+          自托管、数据在自己库里，采集频率自己定
+        </p>
+      </div>
+
+      <div class="mock">
+        <div class="mock-top">
+          <span class="mock-dot"></span><span class="mock-dot"></span><span class="mock-dot"></span>
+          <span class="mock-title">/v1/posts</span>
+          <span class="mock-live">● 实时</span>
+        </div>
+        <div class="mock-body">
+          <div class="mock-item">
+            <div class="mock-ava" style="background:#5b7c6d">木</div>
+            <div class="mock-txt">
+              <b>给博客换了个静态生成器，记录一下踩的坑</b>
+              <div class="mock-line w1"></div><div class="mock-line w2"></div>
+              <div class="mock-meta"><span>木子学习笔记 · 2 小时前</span><span class="mock-score">9.2</span></div>
+            </div>
+          </div>
+          <div class="mock-item">
+            <div class="mock-ava" style="background:#8a6b9c">南</div>
+            <div class="mock-txt">
+              <b>周末去了趟南浔，顺便聊聊慢下来这件事</b>
+              <div class="mock-line w1"></div><div class="mock-line w2"></div>
+              <div class="mock-meta"><span>南山有台 · 昨天</span><span class="mock-score">7.8</span></div>
+            </div>
+          </div>
+          <div class="mock-item">
+            <div class="mock-ava" style="background:#c4894f">码</div>
+            <div class="mock-txt">
+              <b>用 RSS 搭一套自己的信息流，其实不用写多少代码</b>
+              <div class="mock-line w1"></div><div class="mock-line w2"></div>
+              <div class="mock-meta"><span>码上随笔 · 3 天前</span><span class="mock-score">8.6</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="float-card">
+          <span class="float-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <div><b>刚抓完一轮</b><span>29 个站点 · 新增 12 篇</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {% if public and public.sites is not none %}
+  <div class="stats-band">
+    <div class="wrap stats-grid">
+      <div class="stat"><div class="stat-num">{{ public.sites }}</div><div class="stat-label">已接入友链站点</div></div>
+      <div class="stat"><div class="stat-num">{{ public.posts }}</div><div class="stat-label">累计收录文章</div></div>
+      <div class="stat"><div class="stat-num">4<small>层</small></div><div class="stat-label">解析策略逐层兜底</div></div>
+      <div class="stat"><div class="stat-num">1<small>个 API</small></div><div class="stat-label">把文章流带回博客</div></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">WHAT IT DOES</div>
+        <h2>该自动的自动，该你说了算的你自己定</h2>
+        <p>不要求对方配什么，也不要求你写爬虫。大部分博客，给个首页地址就够了。</p>
+      </div>
+      <div class="grid-4">
+        <article class="feature">
+          <div class="fic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg></div>
+          <h3>一个地址，收下整页友链</h3>
+          <p>输入 <code class="mono">/friends/</code> 这类友链页，自动解析出链接和名字，之后还会定期回看有没有新朋友。</p>
+        </article>
+        <article class="feature">
+          <div class="fic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h11M4 18h7"/><circle cx="19" cy="17" r="3"/></svg></div>
+          <h3>没 RSS 也能抓</h3>
+          <p>Feed → 框架指纹 → 启发式 → 自定义规则，四层依次兜底。实在抓不到，会告诉你卡在哪。</p>
+        </article>
+        <article class="feature">
+          <div class="fic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>按你的节奏跑</h3>
+          <p>文章和友链各设各的 cron，失败站点自动降频，不去反复打扰已经下线的博客。</p>
+        </article>
+        <article class="feature">
+          <div class="fic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8L18 16z"/></svg></div>
+          <h3>一句话摘要 + 推荐分</h3>
+          <p>接大模型给每篇文章写句摘要、打个分，先挑值得读的看。支持填自己的 Key，额度自己掌握。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">HOW IT WORKS</div>
+        <h2>三步，然后就不用管了</h2>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-n">01 / ADD</div>
+          <h3>把友链页交给它</h3>
+          <p>粘贴友链页地址，或者手动加站点、导入 OPML。<code>/friends/</code> 一类的页面会自动认出里面的博客。</p>
+        </div>
+        <div class="step">
+          <div class="step-n">02 / CRAWL</div>
+          <h3>让它定时去跑</h3>
+          <p>自动发现 RSS、识别博客框架，抓回新文章并去重。哪个站点挂了、失败几次，后台都看得见。</p>
+        </div>
+        <div class="step">
+          <div class="step-n">03 / USE</div>
+          <h3>把文章流取回去</h3>
+          <p>拿 API Key 调 <code>/v1/posts</code>，返回标题、链接、站点、摘要和推荐分，前端想怎么排都行。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="api" style="padding-top:0">
+    <div class="wrap api-grid">
+      <div>
+        <div class="section-kicker">OPEN API</div>
+        <h2 style="font-size:clamp(26px,3vw,34px);letter-spacing:-.03em;margin:12px 0 12px">数据是你的，接口也是开放的</h2>
+        <p style="color:var(--muted);font-size:15.5px;margin:0;line-height:1.8">
+          不用把页面嵌进博客，也不用改主题。一个 GET 请求拿到结构化数据，剩下的交给你的前端。
+        </p>
+        <ul class="api-list">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span>API Key 鉴权，随时可重新生成</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span>分页、按站点筛选、按推荐分排序</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg><span>字段沿用友链朋友圈习惯，老前端少改</span></li>
+        </ul>
+        <a class="btn btn-ghost" style="margin-top:26px" href="/docs">打开完整 API 文档 →</a>
+      </div>
+      <div class="code">
+        <div class="code-top"><span></span><span></span><span></span><b>GET /v1/posts</b></div>
+<pre><span class="c-dim"># 把文章流取回自己的博客</span>
+<span class="c-cmd">curl</span> -H <span class="c-key">"X-API-Key: your_key"</span> \
+  <span class="c-url">https://ducircle.dusays.com/v1/posts?limit=10</span>
+
+<span class="c-dim"># 返回</span>
+{
+  <span class="c-key">"data"</span>: [{
+    <span class="c-key">"title"</span>:  <span class="c-url">"给博客换了个静态生成器"</span>,
+    <span class="c-key">"author"</span>: <span class="c-url">"木子学习笔记"</span>,
+    <span class="c-key">"link"</span>:   <span class="c-url">"https://example.com/posts/42/"</span>,
+    <span class="c-key">"summary"</span>:<span class="c-url">"从迁移到部署的完整记录"</span>,
+    <span class="c-key">"score"</span>:  <span class="c-url">9.2</span>
+  }],
+  <span class="c-key">"total"</span>: <span class="c-url">326</span>
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="cta">
+      <div>
+        <h2>现在，把朋友们的更新接回来</h2>
+        <p>注册只要一个用户名，剩下交给它自己跑。</p>
+      </div>
+      <a class="btn" href="/web/register">免费开始 →</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>© {{ app_name }} · 把友链变成一条时间线</span>
+    <div class="foot-links">
+      <a href="/docs">API 文档</a>
+      <a href="/web/login">登录后台</a>
+      <a href="/health">服务状态</a>
+      <a href="https://dusays.com/" target="_blank" rel="noopener noreferrer">关于站主</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

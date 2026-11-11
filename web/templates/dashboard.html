@@ -2,152 +2,385 @@
 
 {% block title %}概览 · {{ app_name }}{% endblock %}
 
+{% block head_extra %}
+<style>
+.ds-root{--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--ds-ink)}
+.ds-eyebrow{font-size:11.5px;font-weight:650;letter-spacing:.12em;color:var(--ds-brand);font-family:var(--mono);text-transform:uppercase}
+.ds-h1{font-size:26px;font-weight:680;letter-spacing:-.03em;line-height:1.25;margin:6px 0 5px}
+.ds-sub{font-size:13px;color:var(--ds-muted);margin:0}
+.ds-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:22px}
+.ds-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:560;border:1px solid transparent;cursor:pointer;transition:transform .18s,box-shadow .18s,background .18s;white-space:nowrap}
+.ds-btn:hover{transform:translateY(-1px)}
+.ds-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.ds-btn-primary{background:var(--ds-brand);color:#fff;box-shadow:0 5px 14px rgba(31,107,84,.18)}
+.ds-btn-primary:hover{background:var(--ds-brand-dark)}
+.ds-btn-ghost{background:#fff;border-color:var(--ds-line);color:var(--ds-ink)}
+.ds-btn-ghost:hover{border-color:#cdd8d0}
+.ds-btn-danger{background:#fff;border-color:#f0d3cd;color:var(--ds-danger)}
+.ds-btn-danger:hover{background:#fdf4f2}
+.ds-btn-sm{padding:7px 12px;font-size:12.5px}
+
+.ds-banner{display:flex;align-items:center;gap:10px;border-radius:11px;padding:11px 15px;font-size:13px;margin-bottom:18px;border:1px solid var(--ds-line);background:#fff}
+.ds-banner.hidden{display:none}
+.ds-banner.running{background:var(--ds-brand-soft);border-color:#d5e9de;color:var(--ds-brand-dark)}
+.ds-banner.failed{background:#fdf2f0;border-color:#f4d8d2;color:var(--ds-danger)}
+.ds-banner-dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex-shrink:0}
+.ds-banner.running .ds-banner-dot{animation:ds-pulse 1.3s ease-in-out infinite}
+@keyframes ds-pulse{50%{opacity:.28}}
+
+.ds-card{background:#fff;border:1px solid var(--ds-line);border-radius:15px;box-shadow:0 1px 2px rgba(23,32,28,.03);padding:20px}
+.ds-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.ds-card-title{font-size:14.5px;font-weight:640;letter-spacing:-.01em;margin:0}
+.ds-card-note{font-size:11.5px;color:var(--ds-faint);margin:2px 0 0}
+.ds-card-action{font-size:12px;color:var(--ds-brand);white-space:nowrap}
+.ds-card-action:hover{text-decoration:underline}
+
+.ds-kpi{position:relative;overflow:hidden;padding:18px 18px 16px}
+.ds-kpi::after{content:"";position:absolute;right:-30px;top:-30px;width:90px;height:90px;border-radius:50%;background:var(--ds-brand-soft);opacity:.55;pointer-events:none}
+.ds-kpi:nth-child(3)::after{background:#fdf3e3}
+.ds-kpi-label{font-size:12.5px;color:var(--ds-muted);display:flex;align-items:center;gap:7px}
+.ds-kpi-ic{width:22px;height:22px;border-radius:7px;background:var(--ds-brand-soft);display:grid;place-items:center;color:var(--ds-brand);position:relative;z-index:1}
+.ds-kpi-num{font-family:var(--mono);font-size:30px;font-weight:650;letter-spacing:-.045em;line-height:1.3;margin:10px 0 2px;position:relative;z-index:1}
+.ds-kpi-num small{font-size:14px;color:var(--ds-muted);margin-left:3px;font-weight:500}
+.ds-kpi-foot{font-size:11.5px;color:var(--ds-faint);position:relative;z-index:1}
+.ds-kpi-foot b{color:var(--ds-ink);font-weight:600}
+.ds-track{height:4px;border-radius:4px;background:#eef2ee;overflow:hidden;margin-top:10px;position:relative;z-index:1}
+.ds-track i{display:block;height:100%;border-radius:4px;background:var(--ds-brand)}
+.ds-track.warn i{background:var(--ds-accent)}
+
+.ds-chart{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:6px;height:112px;align-items:end;border-bottom:1px solid var(--ds-line)}
+.ds-bar{width:100%;border-radius:5px 5px 0 0;background:linear-gradient(180deg,#41977a,var(--ds-brand));min-height:3px;transition:opacity .18s}
+.ds-bar:hover{opacity:.72}
+.ds-bar.zero{background:#e9eeea}
+.ds-chart-labels{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:6px;margin-top:8px;font-size:10px;color:var(--ds-faint);text-align:center;font-family:var(--mono)}
+.ds-chart-labels span:nth-child(even){visibility:hidden}
+@media(min-width:900px){.ds-chart-labels span:nth-child(even){visibility:visible}}
+
+.ds-post{display:flex;gap:12px;padding:12px 0;border-top:1px solid #f1f4f0}
+.ds-post:first-child{border-top:0;padding-top:2px}
+.ds-avatar{width:34px;height:34px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;font-size:13px;font-weight:650;color:#fff;background:#7d9b8b;overflow:hidden}
+.ds-avatar img{width:100%;height:100%;object-fit:cover}
+.ds-post-body{flex:1;min-width:0}
+.ds-post-title{font-size:13.5px;font-weight:580;color:var(--ds-ink);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
+.ds-post-title:hover{color:var(--ds-brand);text-decoration:underline}
+.ds-post-meta{font-size:11.5px;color:var(--ds-faint);margin-top:3px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.ds-post-sum{font-size:12px;color:var(--ds-muted);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-badge{font-size:10.5px;padding:1px 6px;border-radius:5px;background:#f2f5f2;color:var(--ds-muted)}
+.ds-badge.score{background:#fdf3e3;color:#a8741c;font-family:var(--mono)}
+
+.ds-ring{width:100px;height:100px;border-radius:50%;background:conic-gradient(var(--ds-brand) var(--p), #edf1ed 0);display:grid;place-items:center;flex-shrink:0}
+.ds-ring-in{width:78px;height:78px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(23,32,28,.05)}
+.ds-ring-in b{font-family:var(--mono);font-size:21px;font-weight:650;letter-spacing:-.04em;line-height:1.2}
+.ds-ring-in span{font-size:10px;color:var(--ds-faint)}
+.ds-health{display:flex;align-items:center;gap:18px}
+.ds-health-txt{font-size:12.5px;color:var(--ds-muted);line-height:1.9}
+.ds-health-txt b{display:block;font-size:15px;color:var(--ds-ink);font-weight:630}
+.ds-list-row{display:flex;align-items:center;gap:9px;padding:9px 0;border-top:1px solid #f1f4f0;font-size:12.5px}
+.ds-list-row .ds-avatar{width:26px;height:26px;border-radius:8px;font-size:11px}
+.ds-list-row-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-list-row-num{font-family:var(--mono);font-size:11.5px;color:var(--ds-muted)}
+.ds-alert{background:#fdf2f0;border:1px solid #f4d8d2;border-radius:9px;padding:9px 11px;font-size:11.5px;color:var(--ds-danger);line-height:1.6;margin-top:10px;word-break:break-word}
+
+.ds-key{font-family:var(--mono);font-size:11.5px;background:#f7f9f6;border:1px solid var(--ds-line);border-radius:9px;padding:9px 11px;flex:1;min-width:0;color:var(--ds-ink-2, #3c4741)}
+.ds-empty{text-align:center;padding:44px 24px}
+.ds-empty-ic{width:48px;height:48px;border-radius:14px;background:var(--ds-brand-soft);display:grid;place-items:center;margin:0 auto 16px;color:var(--ds-brand)}
+.ds-empty h2{font-size:16px;font-weight:630;margin:0 0 8px}
+.ds-empty p{font-size:13px;color:var(--ds-muted);max-width:400px;margin:0 auto 20px;line-height:1.8}
+.ds-strategy{font-size:12.5px}
+.ds-strategy-row{margin-bottom:11px}
+.ds-strategy-row:last-child{margin-bottom:0}
+.ds-strategy-label{display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;color:var(--ds-ink)}
+.ds-strategy-label span:last-child{color:var(--ds-faint);font-family:var(--mono);font-size:11px}
+</style>
+{% endblock %}
+
 {% block page %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-medium text-gray-900">概览</h1>
-    <p class="text-sm text-gray-400 mt-0.5">
-      {% if last_crawled %}最近抓取：{{ last_crawled | ago }}{% else %}尚未开始抓取{% endif %}
-    </p>
-  </div>
-  <button onclick="triggerAll()"
-          class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 transition">
-    立即抓取全部
-  </button>
-</div>
+{% set rate = stats.crawl.success_rate if stats.crawl.success_rate is not none else 0 %}
+{% set summary_rate = stats.posts.summary_rate | round | int %}
+<div class="ds-root">
 
-{# ---- 统计卡片 ---- #}
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
-  <div class="bg-white rounded-lg border border-gray-200 p-4">
-    <p class="text-xs text-gray-400 mb-1">友链总数</p>
-    <p class="text-2xl font-medium">{{ stats.sites.total }}</p>
-    <p class="text-xs text-gray-400 mt-1">活跃 {{ stats.sites.active }}</p>
-  </div>
-
-  <div class="bg-white rounded-lg border border-gray-200 p-4">
-    <p class="text-xs text-gray-400 mb-1">文章总数</p>
-    <p class="text-2xl font-medium">{{ stats.posts.total }}</p>
-    <p class="text-xs text-gray-400 mt-1">
-      已摘要 {{ stats.posts.summarized }}
-      {% if stats.posts.total %}
-      <span class="text-gray-300">· {{ stats.posts.summary_rate }}%</span>
-      {% endif %}
-    </p>
-  </div>
-
-  <div class="bg-white rounded-lg border border-gray-200 p-4">
-    <p class="text-xs text-gray-400 mb-1">抓取成功率</p>
-    <p class="text-2xl font-medium">
-      {{ stats.crawl.success_rate if stats.crawl.success_rate is not none else '-' }}<span class="text-base text-gray-400">%</span>
-    </p>
-    <p class="text-xs text-gray-400 mt-1">{{ stats.crawl.total_runs }} 次抓取</p>
-  </div>
-
-  <div class="bg-white rounded-lg border border-gray-200 p-4 {% if stats.sites.error %}ring-1 ring-red-200{% endif %}">
-    <p class="text-xs text-gray-400 mb-1">异常站点</p>
-    <p class="text-2xl font-medium {% if stats.sites.error %}text-red-600{% endif %}">{{ stats.sites.error }}</p>
-    {% if stats.sites.error %}
-    <a href="/web/failed" class="text-xs text-red-600 hover:underline mt-1 inline-block">去处理 →</a>
-    {% else %}
-    <p class="text-xs text-gray-400 mt-1">一切正常</p>
-    {% endif %}
-  </div>
-</div>
-
-{# ---- 快速开始引导 ---- #}
-{% if stats.sites.total == 0 %}
-<div class="bg-white rounded-lg border border-gray-200 p-8 text-center mb-6">
-  <h2 class="font-medium text-gray-900 mb-2">还没有添加友链</h2>
-  <p class="text-sm text-gray-500 mb-6 max-w-md mx-auto leading-relaxed">
-    两种方式：填一个友链页地址自动导入，或者手动逐个添加。
-    RSS 会自动发现，博客框架自动识别。
-  </p>
-  <a href="/web/sites"
-     class="inline-block px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
-    添加第一个友链
-  </a>
-</div>
-{% endif %}
-
-{# ---- AI 摘要 ---- #}
-{% if ai.enabled %}
-<div class="bg-white rounded-lg border border-gray-200 p-5 mb-6">
-  <div class="flex items-center justify-between mb-3">
-    <h2 class="font-medium">AI 摘要</h2>
-    {% if ai.has_own_key %}
-    <span class="text-xs px-2 py-0.5 rounded bg-green-50 text-green-700">使用你自己的 Key</span>
-    {% elif ai.remaining is not none %}
-    <span class="text-xs text-gray-400">今日剩余 {{ ai.remaining }}/{{ ai.daily_limit }} 篇</span>
-    {% endif %}
-  </div>
-
-  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
-    为文章生成摘要和推荐分，帮你判断哪些值得点开。
-    {% if stats.posts.summarized > 0 %}
-      已完成 {{ stats.posts.summarized }}/{{ stats.posts.total }} 篇。
-    {% endif %}
-  </p>
-
-  {% if stats.posts.total - stats.posts.summarized > 0 %}
-  <div class="flex gap-2">
-    <button onclick="batchSummary()" class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">
-      生成剩余文章的摘要
-    </button>
-  </div>
-  {% elif stats.posts.total > 0 %}
-  <p class="text-sm text-gray-500">全部文章都已有摘要。</p>
-  {% endif %}
-</div>
-{% endif %}
-
-{# ---- API Key ---- #}
-<div class="bg-white rounded-lg border border-gray-200 p-5 mb-6">
-  <div class="flex items-center justify-between mb-3">
-    <h2 class="font-medium">API Key</h2>
-    <span class="text-xs text-gray-400">用于在你的博客前端调用文章流</span>
-  </div>
-  <p class="text-sm text-gray-600 mb-4 leading-relaxed">
-    只显示一次完整 Key，之后只能看到前 8 位。泄露了就重新生成。
-  </p>
-  <div class="flex flex-col md:flex-row gap-2">
-    <input readonly value="{{ api_key_display or '（暂无，请点击右侧按钮重新生成）' }}"
-           id="api-key-box"
-           class="flex-1 px-3 py-2 rounded bg-gray-50 border border-gray-200 font-mono text-xs">
-    <div class="flex gap-2">
-      <button onclick="copyKey()" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">复制</button>
-      <button onclick="regenerateKey()"
-              class="px-3 py-2 rounded border border-red-200 text-red-600 text-sm hover:bg-red-50">重新生成</button>
-    </div>
-  </div>
-</div>
-
-{# ---- 策略分布 ---- #}
-{% if strategy_rows %}
-<div class="bg-white rounded-lg border border-gray-200 p-5">
-  <h2 class="font-medium mb-1">抓取策略分布</h2>
-  <p class="text-xs text-gray-400 mb-4">
-    系统靠什么抓到你的文章。自动识别覆盖得越多，需要手写规则的站点越少。
-  </p>
-  <div class="space-y-2.5">
-    {% set max_count = strategy_rows[0][1] %}
-    {% for strategy, count in strategy_rows %}
+  {# ---- 页头 ---- #}
+  <div class="ds-head">
     <div>
-      <div class="flex justify-between text-sm mb-1">
-        <span class="text-gray-700">{{ strategy | replace('fingerprint:', '框架识别 · ') }}</span>
-        <span class="text-gray-400">{{ count }} 篇</span>
-      </div>
-      <div class="h-1.5 bg-gray-100 rounded overflow-hidden">
-        <div class="h-full bg-gray-900 rounded"
-             style="width: {{ (count / max_count * 100) | round | int }}%"></div>
-      </div>
+      <div class="ds-eyebrow">Console / Overview</div>
+      <h1 class="ds-h1">概览</h1>
+      <p class="ds-sub">
+        {% if last_crawled %}最近抓取 {{ last_crawled | ago }}{% else %}还没有跑过抓取{% endif %}
+        · 共 {{ counts.posts }} 篇文章
+      </p>
     </div>
-    {% endfor %}
+    <div class="ds-actions">
+      <a class="ds-btn ds-btn-ghost" href="/web/posts">查看文章流 →</a>
+      <button id="crawl-btn" onclick="triggerAll()" class="ds-btn ds-btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/></svg>
+        立即抓取全部
+      </button>
+    </div>
+  </div>
+
+  <div id="crawl-banner" class="ds-banner hidden">
+    <span class="ds-banner-dot"></span>
+    <span id="crawl-banner-text"></span>
+  </div>
+
+  {# ---- 空状态引导 ---- #}
+  {% if stats.sites.total == 0 %}
+  <div class="ds-card ds-empty" style="margin-bottom:20px">
+    <div class="ds-empty-ic">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg>
+    </div>
+    <h2>还没有添加友链</h2>
+    <p>两种方式起步：填一个友链页地址自动导入，或者手动逐个添加。RSS 会自动发现，博客框架会自动识别。</p>
+    <a class="ds-btn ds-btn-primary" href="/web/sites">添加第一个友链</a>
+  </div>
+  {% endif %}
+
+  {# ---- 核心指标 ---- #}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+    <div class="ds-card ds-kpi">
+      <div class="ds-kpi-label">
+        <span class="ds-kpi-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg></span>
+        友链总数
+      </div>
+      <div class="ds-kpi-num">{{ stats.sites.total }}</div>
+      <div class="ds-kpi-foot">活跃 <b>{{ stats.sites.active }}</b> · 异常 <b>{{ stats.sites.error }}</b></div>
+    </div>
+
+    <div class="ds-card ds-kpi">
+      <div class="ds-kpi-label">
+        <span class="ds-kpi-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+        文章总数
+      </div>
+      <div class="ds-kpi-num">{{ stats.posts.total }}</div>
+      <div class="ds-kpi-foot">已摘要 <b>{{ stats.posts.summarized }}</b> · {{ summary_rate }}%</div>
+      <div class="ds-track"><i style="width:{{ summary_rate }}%"></i></div>
+    </div>
+
+    <div class="ds-card ds-kpi">
+      <div class="ds-kpi-label">
+        <span class="ds-kpi-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 17l5-5 4 3 8-8"/><path d="M16 7h4v4"/></svg></span>
+        近 7 天新增
+      </div>
+      <div class="ds-kpi-num">{{ insights.new_7d }}<small>篇</small></div>
+      <div class="ds-kpi-foot">近 14 天单日峰值 <b>{{ insights.trend_peak if insights.trend_peak > 1 else 0 }}</b> 篇</div>
+      <div class="ds-track warn"><i style="width:{{ (insights.new_7d / (insights.new_7d + 20) * 100) | round | int }}%"></i></div>
+    </div>
+
+    <div class="ds-card ds-kpi">
+      <div class="ds-kpi-label">
+        <span class="ds-kpi-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+        抓取成功率
+      </div>
+      <div class="ds-kpi-num">
+        {% if stats.crawl.success_rate is not none %}{{ stats.crawl.success_rate | round | int }}<small>%</small>{% else %}-{% endif %}
+      </div>
+      <div class="ds-kpi-foot">近 7 天 <b>{{ insights.recent_runs }}</b> 次 · 失败 <b>{{ insights.recent_failed }}</b></div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 md:mt-5">
+    {# ---- 左栏 ---- #}
+    <div class="lg:col-span-2 space-y-4 md:space-y-5">
+
+      <section class="ds-card">
+        <div class="ds-card-head">
+          <div>
+            <h2 class="ds-card-title">近 14 天收录趋势</h2>
+            <p class="ds-card-note">按文章入库时间统计，含所有友链站点</p>
+          </div>
+          <span class="ds-badge">共 {{ insights.trend | sum(attribute='count') }} 篇</span>
+        </div>
+        <div class="ds-chart">
+          {% for row in insights.trend %}
+          <div class="ds-bar {% if row.count == 0 %}zero{% endif %}"
+               title="{{ row.iso }} · {{ row.count }} 篇"
+               style="height:{{ 3 if row.count == 0 else (row.count / insights.trend_peak * 104) | round | int }}px"></div>
+          {% endfor %}
+        </div>
+        <div class="ds-chart-labels">
+          {% for row in insights.trend %}<span>{{ row.label }}</span>{% endfor %}
+        </div>
+      </section>
+
+      <section class="ds-card">
+        <div class="ds-card-head">
+          <div>
+            <h2 class="ds-card-title">最新文章</h2>
+            <p class="ds-card-note">朋友们最近写了什么</p>
+          </div>
+          <a class="ds-card-action" href="/web/posts">全部文章 →</a>
+        </div>
+
+        {% if insights.recent_posts %}
+          {% for post in insights.recent_posts %}
+          <div class="ds-post">
+            <div class="ds-avatar">
+              {% if post.avatar %}
+              <img src="{{ post.avatar }}" alt="" loading="lazy">
+              {% else %}
+              {{ post.site_name[0] }}
+              {% endif %}
+            </div>
+            <div class="ds-post-body">
+              <a class="ds-post-title" href="{{ post.link }}" target="_blank" rel="noopener noreferrer">{{ post.title }}</a>
+              <div class="ds-post-meta">
+                <a href="{{ post.site_url }}" target="_blank" rel="noopener noreferrer">{{ post.site_name }}</a>
+                <span>·</span><span>{{ post.when | ago }}</span>
+                {% if not post.summary %}<span class="ds-badge">待摘要</span>{% endif %}
+                {% if post.score is not none %}<span class="ds-badge score">{{ '%.1f' | format(post.score) }}</span>{% endif %}
+              </div>
+              {% if post.summary %}<div class="ds-post-sum">{{ post.summary | truncate_title(64) }}</div>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+        <div style="text-align:center;padding:34px 10px;color:var(--ds-faint);font-size:13px">
+          还没有文章。添加友链后点右上角「立即抓取全部」就会有了。
+        </div>
+        {% endif %}
+      </section>
+    </div>
+
+    {# ---- 右栏 ---- #}
+    <aside class="space-y-4 md:space-y-5">
+
+      <section class="ds-card">
+        <div class="ds-card-head"><h2 class="ds-card-title">抓取健康</h2>
+          <a class="ds-card-action" href="/web/failed">明细 →</a></div>
+        <div class="ds-health">
+          <div class="ds-ring" style="--p: {{ rate }}%">
+            <div class="ds-ring-in"><b>{{ rate | round | int }}%</b><span>成功率</span></div>
+          </div>
+          <div class="ds-health-txt">
+            <b>{{ insights.recent_runs }} 次运行</b>
+            近 7 天<br>
+            失败 {{ insights.recent_failed }} 次<br>
+            累计 {{ stats.crawl.total_runs }} 次
+          </div>
+        </div>
+        {% if stats.sites.error %}
+        <div style="margin-top:16px">
+          <p style="font-size:11.5px;color:var(--ds-faint);margin:0 0 4px">需要留意的站点</p>
+          {% for site in insights.failed_sites %}
+          <div class="ds-list-row">
+            <span class="ds-avatar">{{ site.name[0] }}</span>
+            <a class="ds-list-row-name" href="{{ site.url }}" target="_blank" rel="noopener noreferrer">{{ site.name }}</a>
+            <span class="ds-list-row-num" style="color:var(--ds-danger)">失败 {{ site.failures }}</span>
+          </div>
+          {% endfor %}
+          <a class="ds-card-action" style="display:inline-block;margin-top:8px" href="/web/failed">去处理 →</a>
+        </div>
+        {% else %}
+        <div style="margin-top:14px;font-size:12px;color:var(--ds-brand);background:var(--ds-brand-soft);border-radius:9px;padding:8px 11px">所有站点状态正常</div>
+        {% endif %}
+      </section>
+
+      {% if ai.enabled %}
+      <section class="ds-card">
+        <div class="ds-card-head">
+          <h2 class="ds-card-title">AI 摘要</h2>
+          {% if ai.has_own_key %}<span class="ds-badge">自有 Key</span>
+          {% elif ai.remaining is not none %}<span class="ds-badge">今日剩 {{ ai.remaining }}</span>{% endif %}
+        </div>
+        <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
+          给文章写句摘要、打个推荐分，先挑值得读的看。
+        </p>
+        <div class="ds-track" style="margin-top:0"><i style="width:{{ summary_rate }}%"></i></div>
+        <p style="font-size:11.5px;color:var(--ds-faint);margin:8px 0 14px">
+          已完成 {{ stats.posts.summarized }} / {{ stats.posts.total }} 篇
+        </p>
+        {% if stats.posts.total - stats.posts.summarized > 0 %}
+        <button onclick="batchSummary()" class="ds-btn ds-btn-ghost ds-btn-sm" style="width:100%">生成剩余文章的摘要</button>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <section class="ds-card">
+        <div class="ds-card-head"><h2 class="ds-card-title">API Key</h2>
+          <span class="ds-badge">前端接入用</span></div>
+        <p style="font-size:12px;color:var(--ds-muted);margin:0 0 12px;line-height:1.7">
+          完整 Key 只显示一次，泄露了就重新生成。
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input readonly value="{{ api_key_display or '（暂无，请重新生成）' }}"
+                 id="api-key-box" class="ds-key">
+          <button onclick="copyKey()" class="ds-btn ds-btn-ghost ds-btn-sm">复制</button>
+          <button onclick="regenerateKey()" class="ds-btn ds-btn-danger ds-btn-sm">重新生成</button>
+        </div>
+      </section>
+
+      {% if insights.top_sites %}
+      <section class="ds-card">
+        <div class="ds-card-head"><h2 class="ds-card-title">最活跃的友链</h2>
+          <a class="ds-card-action" href="/web/sites">管理 →</a></div>
+        {% for site in insights.top_sites %}
+        <div class="ds-list-row">
+          <span class="ds-avatar">
+            {% if site.avatar %}<img src="{{ site.avatar }}" alt="" loading="lazy">{% else %}{{ site.name[0] }}{% endif %}
+          </span>
+          <a class="ds-list-row-name" href="{{ site.url }}" target="_blank" rel="noopener noreferrer">{{ site.name }}</a>
+          <span class="ds-list-row-num">{{ site.count }} 篇</span>
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      {% if strategy_rows %}
+      <section class="ds-card ds-strategy">
+        <div class="ds-card-head"><h2 class="ds-card-title">抓取策略分布</h2></div>
+        <p style="font-size:11.5px;color:var(--ds-faint);margin:-6px 0 14px;line-height:1.6">
+          自动识别覆盖得越多，需要手写规则的站点越少。
+        </p>
+        {% set max_count = strategy_rows[0][1] %}
+        {% for strategy, count in strategy_rows %}
+        <div class="ds-strategy-row">
+          <div class="ds-strategy-label">
+            <span>{{ strategy | replace('fingerprint:', '框架识别 · ') }}</span>
+            <span>{{ count }} 篇</span>
+          </div>
+          <div class="ds-track" style="margin-top:0"><i style="width:{{ (count / max_count * 100) | round | int }}%"></i></div>
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+    </aside>
   </div>
 </div>
-{% endif %}
 {% endblock %}
 
 {% block page_scripts %}
+function showBanner(msg, kind) {
+  const el = document.getElementById('crawl-banner');
+  document.getElementById('crawl-banner-text').textContent = msg;
+  el.className = 'ds-banner ' + (kind || '');
+}
+
+function setCrawling(on) {
+  const btn = document.getElementById('crawl-btn');
+  btn.disabled = on;
+  btn.innerHTML = on
+    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/></svg> 抓取中…'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/></svg> 立即抓取全部';
+}
+
+// 打开页面先读一次状态：上次抓取的结果、或仍在跑的任务，都要看得见。
+async function initCrawlStatus() {
+  try {
+    const s = await api('/api/admin/crawl-status');
+    if (!s || s.state === 'idle') return;
+    if (s.state === 'running') {
+      setCrawling(true);
+      showBanner('正在抓取站点，完成后会自动刷新数据', 'running');
+      pollCrawlStatus();
+    } else if (s.state === 'done') {
+      showBanner('上次抓取：成功 ' + (s.crawled || 0) + ' 个站点，新增 ' + (s.new_posts || 0) + ' 篇', '');
+    } else if (s.state === 'failed') {
+      showBanner('上次抓取失败：' + (s.error || '未知原因'), 'failed');
+    }
+  } catch (e) { /* 状态读不到不影响页面 */ }
+}
+
 async function batchSummary() {
   if (!confirm('将为所有未摘要的文章生成摘要。\n这会消耗 AI 额度，通常需要几分钟。')) return;
   try {
@@ -159,19 +392,25 @@ async function batchSummary() {
 
 async function triggerAll() {
   if (!confirm('确定立即抓取全部友链吗？\n抓取会在后台进行，可能需要几分钟。')) return;
+  setCrawling(true);
+  showBanner('正在抓取站点，完成后会自动刷新数据', 'running');
   try {
     const data = await api('/api/admin/crawl/all', { method: 'POST' });
     showToast(data.message || '已触发');
     pollCrawlStatus();
-  } catch (e) { showToast(e.message, false); }
+  } catch (e) {
+    setCrawling(false);
+    showBanner('抓取触发失败：' + e.message, 'failed');
+    showToast(e.message, false);
+  }
 }
 
-// 轮询抓取状态，把真实结果告诉用户。
-// 之前只弹一句「已触发」就没下文了——
+// 轮询真实进度。之前只弹一句「已触发」就没下文了——
 // 后台失败时用户完全看不出来，只会觉得「按钮坏了」。
 async function pollCrawlStatus(tries = 0) {
   if (tries > 60) {  // 最多轮询 5 分钟
-    showToast('抓取仍在进行，稍后刷新页面查看', false);
+    setCrawling(false);
+    showBanner('抓取仍在进行，稍后刷新页面查看', '');
     return;
   }
   try {
@@ -180,14 +419,17 @@ async function pollCrawlStatus(tries = 0) {
       setTimeout(() => pollCrawlStatus(tries + 1), 2000);
       return;
     }
+    setCrawling(false);
     if (s.state === 'failed') {
+      showBanner('抓取失败：' + (s.error || '未知原因'), 'failed');
       showToast('抓取失败：' + (s.error || '未知原因'), false);
       return;
     }
     if (s.state === 'done') {
       const msg = '抓取完成：成功 ' + (s.crawled || 0) + ' 个站点，新增 ' + (s.new_posts || 0) + ' 篇';
+      showBanner(msg, '');
       showToast(msg);
-      setTimeout(() => location.reload(), 1500);
+      setTimeout(() => location.reload(), 1800);
       return;
     }
   } catch (e) { /* 状态查询失败不打扰用户 */ }
@@ -212,4 +454,6 @@ async function regenerateKey() {
     showToast('已生成新 Key，请复制保存');
   } catch (e) { showToast(e.message, false); }
 }
+
+initCrawlStatus();
 {% endblock %}

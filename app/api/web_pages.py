@@ -54,6 +54,140 @@ async def _ai_state(user: User, db) -> dict:
     }
 
 
+async def _dashboard_insights(db) -> dict:
+    """概览页专属数据：趋势、最新文章、抓取健康、活跃友链。
+
+    统一用 Post.crawled_at 做时间轴而不是 created——created 是对方
+    文章的发布时间，可能缺失甚至写错，用来画「最近收录」会失真。
+    所有查询都走当前请求的会话，租户过滤由 ORM 事件自动注入。
+    """
+    from datetime import datetime, timedelta
+
+    today = datetime.now().date()
+    start_14 = datetime.combine(today - timedelta(days=13), datetime.min.time())
+    start_7 = datetime.combine(today - timedelta(days=6), datetime.min.time())
+
+    # 近 14 天每天收录几篇。MySQL 的 DATE() 返回字符串、SQLite 也是，
+    # 但驱动可能给 date 对象，统一裁前 10 位最省心。
+    raw_days = (
+        await db.execute(
+            select(func.date(Post.crawled_at), func.count(Post.id))
+            .where(Post.deleted_at.is_(None), Post.crawled_at >= start_14)
+            .group_by(func.date(Post.crawled_at))
+        )
+    ).all()
+    day_counts = {str(day)[:10]: int(count) for day, count in raw_days}
+
+    trend = []
+    for back in range(13, -1, -1):
+        day = today - timedelta(days=back)
+        trend.append(
+            {
+                "label": f"{day.month}/{day.day}",
+                "iso": day.isoformat(),
+                "count": day_counts.get(day.isoformat(), 0),
+            }
+        )
+    peak = max((row["count"] for row in trend), default=0) or 1
+
+    new_7d = (
+        await db.execute(
+            select(func.count(Post.id)).where(
+                Post.deleted_at.is_(None), Post.crawled_at >= start_7
+            )
+        )
+    ).scalar_one()
+
+    post_rows = (
+        await db.execute(
+            select(
+                Post.title,
+                Post.link,
+                Post.created,
+                Post.crawled_at,
+                Post.summary,
+                Post.ai_score,
+                Site.name,
+                Site.url,
+                Site.avatar,
+            )
+            .join(Site, Post.site_id == Site.id)
+            .where(Post.deleted_at.is_(None))
+            .order_by(desc_nulls_last(Post.created), Post.id.desc())
+            .limit(6)
+        )
+    ).all()
+    recent_posts = [
+        {
+            "title": title,
+            "link": link,
+            "when": created or crawled_at,
+            "summary": summary,
+            "score": score,
+            "site_name": site_name,
+            "site_url": site_url,
+            "avatar": avatar,
+        }
+        for title, link, created, crawled_at, summary, score, site_name, site_url, avatar in post_rows
+    ]
+
+    log_rows = (
+        await db.execute(
+            select(CrawlLog.status, func.count(CrawlLog.id))
+            .where(CrawlLog.created_at >= start_7)
+            .group_by(CrawlLog.status)
+        )
+    ).all()
+    recent_runs = sum(int(count) for _, count in log_rows)
+    recent_failed = sum(
+        int(count) for status, count in log_rows if status == "failed"
+    )
+
+    top_rows = (
+        await db.execute(
+            select(
+                Site.name, Site.url, Site.avatar, func.count(Post.id)
+            )
+            .join(Post, Post.site_id == Site.id)
+            .where(Post.deleted_at.is_(None), Site.deleted_at.is_(None))
+            .group_by(Site.id, Site.name, Site.url, Site.avatar)
+            .order_by(func.count(Post.id).desc())
+            .limit(5)
+        )
+    ).all()
+    top_sites = [
+        {"name": n, "url": u, "avatar": a, "count": int(c)}
+        for n, u, a, c in top_rows
+    ]
+
+    failed_rows = (
+        await db.execute(
+            select(
+                Site.name, Site.url, Site.error_message,
+                Site.consecutive_failures,
+            )
+            .where(Site.error.is_(True))
+            .order_by(Site.consecutive_failures.desc())
+            .limit(3)
+        )
+    ).all()
+    failed_sites = [
+        {"name": n, "url": u, "message": m, "failures": f}
+        for n, u, m, f in failed_rows
+    ]
+
+    return {
+        "trend": trend,
+        "trend_peak": peak,
+        "new_7d": int(new_7d),
+        "recent_posts": recent_posts,
+        "recent_runs": recent_runs,
+        "recent_failed": recent_failed,
+        "top_sites": top_sites,
+        "failed_sites": failed_sites,
+    }
+
+
 async def _page_context(request: Request, user: User, counts: dict, page: str) -> dict:
     """所有页面共用的上下文。
 
@@ -108,6 +242,7 @@ async def dashboard(
 
         counts = await nav_counts(db)
         ai_state = await _ai_state(user, db)
+        insights = await _dashboard_insights(db)
 
     ctx = await _page_context(request, user, counts, "dashboard")
     ctx.update(
@@ -115,6 +250,7 @@ async def dashboard(
         strategy_rows=strategy_rows,
         last_crawled=last_site.last_crawled_at if last_site else None,
         ai=ai_state,
+        insights=insights,
     )
     return render(request, "dashboard.html", ctx)
 

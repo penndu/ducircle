@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f6b54'/><text x='50' y='68' text-anchor='middle' font-size='58' fill='white'>友</text></svg>">
   {# Tailwind 走 CDN：后台页面量小，构建链不值得引入。
      公开服务上线后建议改成本地构建，避免依赖第三方可用性。 #}
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    :root{
+      --ds-ink:#17201c; --ds-muted:#6d7771; --ds-faint:#98a29c;
+      --ds-line:#e4e9e3; --ds-brand:#1f6b54; --ds-brand-dark:#175440;
+      --ds-brand-soft:#e9f3ee; --ds-accent:#e6a23c; --ds-danger:#c0483a;
+    }
     [x-cloak] { display: none !important; }
     body { -webkit-font-smoothing: antialiased; }
     /* 表格在窄屏可横向滚动，不撑破布局 */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   </style>
+  {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}bg-gray-50 text-gray-900{% endblock %}">
 
