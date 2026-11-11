@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from app.api.cors_middleware import CorsMiddleware
 from app.api.ratelimit_middleware import RateLimitMiddleware, TenantContextMiddleware
 from app.core.config import get_settings
 
@@ -73,8 +74,17 @@ app = FastAPI(
 # 中间件执行顺序是「后注册的在最外层」。
 # TenantContext 必须比限流更内层：它负责在每个请求开始时清空租户状态，
 # 放最内层才能保证路由处理前后状态都是干净的。
+#
+# CORS 最外层：预检请求要在限流之前就返回，
+# 否则浏览器发一次 OPTIONS 就吃掉一个令牌桶配额。
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(TenantContextMiddleware)
+app.add_middleware(
+    CorsMiddleware,
+    allowed_origins=[
+        o for o in settings.cors_origins.split(",") if o.strip()
+    ],
+)
 
 # ---- 路由 ----
 from app.api import admin, ai, auth, export, opml, users, web_pages  # noqa: E402

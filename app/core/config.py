@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     rate_limit_qps: int = 5
     rate_limit_burst: int = 15
 
+    # ---- 跨域 ----
+    # 允许哪些站点从浏览器直接调只读 API（/v1/*）。
+    # 逗号分隔的域名列表，空表示不开放跨域。
+    # 不能设成 "*"：请求要带 X-API-Key 头，开放通配等于把 Key 暴露给任何站点。
+    cors_origins: str = ""
+
     # ---- AI 摘要 ----
     ai_enabled: bool = True
     ai_platform_provider: str = "siliconflow"

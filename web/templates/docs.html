@@ -156,6 +156,73 @@
     </div>
   </section>
 
+  <section class="block" id="frontend" style="padding-top:0">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-kicker">FRONTEND CODE</div>
+        <h2>前台调用代码</h2>
+        <p>下面几段是能直接复制走的成品。改两处：后端地址和你的 API Key。</p>
+      </div>
+
+      <div class="code" style="margin-bottom:20px">
+        <div class="code-top"><span></span><span></span><span></span><b>原生 JS</b></div>
+<pre><span class="c-dim">// 放到你的页面里，引一次即可</span>
+&lt;<span class="c-cmd">script</span> src=<span class="c-url">"https://ducircle.dusays.com/static/ducircle.js"</span>&gt;&lt;/<span class="c-cmd">script</span>&gt;
+&lt;<span class="c-cmd">div</span> id=<span class="c-url">"friend-circle"</span>&gt;&lt;/<span class="c-cmd">div</span>&gt;
+&lt;<span class="c-cmd">script</span>&gt;
+  <span class="c-key">FriendCircle</span>.<span class="c-url">mount</span>(<span class="c-url">'#friend-circle'</span>, { pageSize: <span class="c-url">10</span> });
+&lt;/<span class="c-cmd">script</span>&gt;
+
+<span class="c-dim">// 换成你的 Key（在后台「设置 → API Key」拿）</span>
+<span class="c-dim">// API_BASE 默认就是线上服务，一般不用改</span></pre>
+      </div>
+
+      <div class="code" style="margin-bottom:20px">
+        <div class="code-top"><span></span><span></span><span></span><b>只要数据，自己渲染</b></div>
+<pre><span class="c-dim">// 不想要默认样式，只要 JSON 数据的话</span>
+<span class="c-cmd">const</span> res = <span class="c-cmd">await</span> <span class="c-url">fetch</span>(<span class="c-url">'https://ducircle.dusays.com/v1/all?start=0&amp;end=9'</span>, {
+  headers: { <span class="c-key">'X-API-Key'</span>: <span class="c-url">'fc_你的密钥'</span> }
+});
+<span class="c-cmd">const</span> { data, total } = <span class="c-cmd">await</span> res.<span class="c-url">json</span>();
+
+<span class="c-dim">// data[].title / link / author / avatar / created / summary / score</span></pre>
+      </div>
+
+      <div class="code" style="margin-bottom:20px">
+        <div class="code-top"><span></span><span></span><span></span><b>React</b></div>
+<pre><span class="c-cmd">import</span> FriendCircle <span class="c-cmd">from</span> <span class="c-url">'./ducircle-react'</span>;
+
+&lt;<span class="c-cmd">FriendCircle</span>
+  apiKey={<span class="c-url">process.env.NEXT_PUBLIC_DUCIRCLE_KEY</span>}
+  pageSize={<span class="c-url">10</span>}
+  rule=<span class="c-url">"created"</span>   <span class="c-dim">// created | updated | score</span>
+/&gt;</pre>
+      </div>
+
+      <div class="code">
+        <div class="code-top"><span></span><span></span><span></span><b>Vue 3</b></div>
+<pre><span class="c-cmd">import</span> FriendCircle <span class="c-cmd">from</span> <span class="c-url">'./ducircle-vue.js'</span>;
+
+<span class="c-dim">&lt;!-- 模板里 --&gt;</span>
+&lt;<span class="c-cmd">FriendCircle</span> :api-key=<span class="c-url">"key"</span> :page-size=<span class="c-url">"10"</span> /&gt;</pre>
+      </div>
+
+      <p style="font-size:13px;color:var(--ds-muted);margin-top:18px;line-height:1.9">
+        完整文件（原生 JS、React、Vue、Hexo 模板版）都在
+        <a href="/static/ducircle.js" style="color:var(--ds-brand)">/static/ducircle.js</a> 同目录，
+        可直接下载改。
+      </p>
+
+      <div class="callout" style="margin-top:26px;background:var(--ds-brand-soft);border-color:#d5e9de;border-radius:12px;padding:16px 18px">
+        <p style="font-size:13px;color:var(--ds-brand-dark);margin:0;line-height:1.9">
+          <strong>关于跨域</strong>：浏览器直接调本接口需要把你的博客域名加进服务端白名单
+          （<code>CORS_ORIGINS</code>，逗号分隔）。没加的话浏览器会拦下预检请求。
+          如果不想动服务端配置，就在自己的博客里加一层反向代理——那样属于同源请求，不需要 CORS。
+        </p>
+      </div>
+    </div>
+  </section>
+
   <div class="wrap">
     <div class="cta">
       <div>
