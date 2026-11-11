@@ -129,8 +129,13 @@ class Crawler:
         resp = await self.client.get(url)
         return resp.status_code, resp.text, str(resp.url)
 
-    async def crawl_site(self, url: str) -> CrawlResult:
-        """抓取一个站点首页/文章列表页。不涉及数据库，可独立测试。"""
+    async def crawl_site(self, url: str, feed_url: str | None = None) -> CrawlResult:
+        """抓取一个站点首页/文章列表页。不涉及数据库，可独立测试。
+
+        feed_url 是用户手动指定的 RSS 地址。填了就只用它，
+        不再自动发现——用户既然明确指定了，自动猜出来的结果
+        反而可能不是他想要的。
+        """
         started = time.monotonic()
         # 发请求用 request_url（保留 www.），不能用 normalize_url——
         # 后者会剥掉 www.，很多站点裸域没有 DNS，抓取直接 ConnectError。
@@ -175,7 +180,7 @@ class Crawler:
         # 用原地址拼出来的 /feed 会被重定向回首页，表现为「0 篇文章」。
         base_url = request_url(final_url)
 
-        site = await self._apply_strategies(base_url, html)
+        site = await self._apply_strategies(base_url, html, feed_url=feed_url)
 
         if site is None:
             return CrawlResult(
@@ -202,14 +207,18 @@ class Crawler:
         )
 
     async def _apply_strategies(
-        self, url: str, html: str, rules: CustomRuleSet | None = None
+        self,
+        url: str,
+        html: str,
+        rules: CustomRuleSet | None = None,
+        feed_url: str | None = None,
     ) -> ParsedSite | None:
         """按优先级依次尝试各层策略。"""
         # 第 1 层：RSS 自动发现。
         # 注意只调一次——之前写成 `if await self._try_feed(...) is not None:
         # return await self._try_feed(...)`，等于把整个探测流程跑两遍，
         # 每个候选路径都发两次请求。
-        feed = await self._try_feed(url, html)
+        feed = await self._try_feed(url, html, feed_url=feed_url)
         if feed is not None:
             return feed
 
@@ -223,37 +232,51 @@ class Crawler:
         # 第 3 层：通用结构推断
         return parse_with_heuristic(html, url)
 
-    async def _try_feed(self, url: str, html: str) -> ParsedSite | None:
+    async def _try_feed(
+        self, url: str, html: str, feed_url: str | None = None
+    ) -> ParsedSite | None:
         """尝试 RSS/Atom。
 
-        候选来源有两个：页面里声明的 <link rel="alternate">（最准），
-        以及一组常见路径（兜底）。两者都保留 www. 前缀。
+        候选来源有三个：
+        1. 用户手动填的 feed_url——填了就只用它，不再猜
+        2. 页面里声明的 <link rel="alternate">（最准）
+        3. 一组常见路径（兜底）
+
+        三者都保留 www. 前缀。
         """
         candidates: list[str] = []
-        declared = discover_feed_url(html, url)
-        if declared:
-            # 声明的地址最可信，优先试
-            candidates.append(request_url(declared))
-        candidates.extend(
-            request_url(urljoin(url, path)) for path in COMMON_FEED_PATHS
-        )
+
+        if feed_url:
+            # 用户指定的地址优先，且**只用**它。
+            # 试不通就明确报错，而不是悄悄换成别的源——
+            # 静默降级会让用户以为自己的配置生效了。
+            candidates.append(request_url(feed_url))
+        else:
+            declared = discover_feed_url(html, url)
+            if declared:
+                # 声明的地址最可信，优先试
+                candidates.append(request_url(declared))
+            candidates.extend(
+                request_url(urljoin(url, path)) for path in COMMON_FEED_PATHS
+            )
 
         seen: set[str] = set()
-        for feed_url in candidates:
-            if feed_url in seen:
+        for candidate in candidates:
+            if candidate in seen:
                 continue
-            seen.add(feed_url)
+            seen.add(candidate)
             try:
-                status, content = await self._fetch(feed_url)
+                status, content = await self._fetch(candidate)
                 if status >= 400:
                     continue
                 parsed = parse_feed(
                     content.encode("utf-8") if isinstance(content, str) else content,
-                    feed_url,
+                    candidate,
                     url,
                 )
                 if parsed:
                     parsed.name = parsed.name or url
+                    parsed.feed_url = candidate
                     return parsed
             except CrawlError:
                 continue
@@ -299,7 +322,7 @@ class Crawler:
             if rules is not None and rules.has_rules():
                 return await self._crawl_with_custom(site, rules, started)
 
-            return await self.crawl_site(site.url)
+            return await self.crawl_site(site.url, feed_url=site.feed_url)
         finally:
             await self._release()
 

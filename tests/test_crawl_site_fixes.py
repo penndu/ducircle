@@ -19,7 +19,7 @@ class TestRequestUrlKeepsWww:
         """发请求的地址必须保留 www.。"""
         assert request_url("https://www.iczrx.cn") == "https://www.iczrx.cn/"
         assert request_url("https://www.iczrx.cn/feed/") == (
-            "https://www.iczrx.cn/feed"
+            "https://www.iczrx.cn/feed/"
         )
 
     def test_normalize_url_still_strips_www(self):
@@ -27,13 +27,39 @@ class TestRequestUrlKeepsWww:
         assert normalize_url("https://www.iczrx.cn") == "https://iczrx.cn/"
 
     def test_two_functions_differ_only_on_www(self):
-        """两者只在 www 上有区别，别的地方行为要一致。"""
+        """request_url 与 normalize_url 只在 www 上有区别。"""
         for url in [
-            "https://example.com/a/",
+            "https://example.com/a",
             "https://example.com/a?b=1",
             "https://example.com:443/x",
         ]:
             assert normalize_url(url) == request_url(url)
+
+    def test_request_url_keeps_trailing_slash(self):
+        """末尾斜杠必须保留。
+
+        /feed 和 /feed/ 在不少站点上是两个地址：
+        前者 301 跳后者，有些自建 CMS 只认带斜杠的。
+        用户手动填 RSS 地址时尤其不能动它。
+        """
+        assert request_url("https://example.com/feed/") == (
+            "https://example.com/feed/"
+        )
+        assert request_url("https://example.com/atom.xml") == (
+            "https://example.com/atom.xml"
+        )
+
+    def test_article_url_drops_trailing_slash(self):
+        """文章链接反过来：尾斜杠没语义，要去掉。"""
+        from app.core.security import article_url
+
+        assert article_url("https://example.com/posts/123/") == (
+            "https://example.com/posts/123"
+        )
+        # www. 仍然要保留——后面还要去抓正文
+        assert article_url("https://www.example.com/posts/123") == (
+            "https://www.example.com/posts/123"
+        )
 
     def test_request_url_keeps_query(self):
         """请求地址要保留查询参数，追踪参数剥离只用于去重。"""
@@ -154,7 +180,7 @@ class TestFeedStrategyOnlyTriesOnce:
 
         calls = {"n": 0}
 
-        async def _fake_try_feed(self, url, html):
+        async def _fake_try_feed(self, url, html, feed_url=None):
             calls["n"] += 1
             return None
 

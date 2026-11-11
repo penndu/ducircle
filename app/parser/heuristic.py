@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin
 
-from app.core.security import request_url
+from app.core.security import article_url
 from app.parser.base import ParsedPost, ParsedSite
 from app.parser.fingerprint import parse_datetime_flexible
 
@@ -166,7 +166,7 @@ def _extract_from_container(container, base_url: str):
         raw_href = node.attributes.get("href")
         if not raw_href:
             continue
-        candidate = request_url(urljoin(base_url, raw_href))
+        candidate = article_url(urljoin(base_url, raw_href))
         if not looks_like_article(candidate):
             continue
         text = node.text(strip=True)

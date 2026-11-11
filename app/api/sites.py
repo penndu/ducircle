@@ -94,6 +94,25 @@ class BlacklistCreate(BaseModel):
         return v
 
 
+def _clean_feed_url(value: str | None) -> str | None:
+    """规整用户填写的 RSS 地址。
+
+    与站点网址不同，这里**保留末尾斜杠**：
+    /feed 和 /feed/ 在不少站点上是两个地址，
+    少数自建 CMS 只认带斜杠的那个。剥掉会直接让用户的配置失效。
+
+    空字符串视为「清空」，返回 None。
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if not value.startswith(("http://", "https://")):
+        value = "https://" + value
+    return value
+
+
 async def _post_count_map(db, site_ids: list[int]) -> dict[int, int]:
     from app.models import Post
 
@@ -175,7 +194,7 @@ async def create_site(
         name=payload.name.strip(),
         url=payload.url,
         url_hash=url_hash,
-        feed_url=payload.feed_url,
+        feed_url=_clean_feed_url(payload.feed_url),
         avatar=payload.avatar,
         note=payload.note,
         source=payload.source,
@@ -210,6 +229,8 @@ async def update_site(
         data["url_hash"] = site_hash(data["url"])
     if "name" in data and data["name"]:
         data["name"] = data["name"].strip()
+    if "feed_url" in data:
+        data["feed_url"] = _clean_feed_url(data["feed_url"])
 
     for field, value in data.items():
         setattr(site, field, value)

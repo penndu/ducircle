@@ -3,6 +3,18 @@
 {% block title %}友链管理 · {{ app_name }}{% endblock %}
 
 {% block page %}
+{# 编辑弹窗要用的站点数据。放在这里而不是 scripts 块，
+   免得 Jinja 序列化 ORM 对象出意外。 #}
+<script type="application/json" id="site-index">
+[
+{% for site in sites %}
+  {"id": {{ site.id }}, "name": {{ site.name | tojson }}, "url": {{ site.url | tojson }},
+   "feed_url": {{ (site.feed_url or '') | tojson }}, "note": {{ (site.note or '') | tojson }},
+   "avatar": {{ (site.avatar or '') | tojson }}}{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+</script>
+
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-xl font-medium">友链管理</h1>
   <button onclick="openAdd()"
@@ -61,6 +73,13 @@
 
         <p class="text-xs text-gray-400 mt-1 truncate">{{ site.url }}</p>
 
+        {% if site.feed_url %}
+        <p class="text-xs text-gray-400 mt-0.5 truncate">
+          RSS：<a href="{{ site.feed_url }}" target="_blank" rel="noopener noreferrer"
+             class="hover:underline">{{ site.feed_url }}</a>
+        </p>
+        {% endif %}
+
         <p class="text-xs text-gray-400 mt-1.5">
           {{ site.post_count }} 篇文章
           {% if site.last_success_at %}· 最近成功 {{ site.last_success_at | ago }}{% endif %}
@@ -82,6 +101,9 @@
         <button onclick="crawlNow({{ site.id }}, this)"
                 class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
                 title="立即抓取">抓取</button>
+        <button onclick="openEdit({{ site.id }})"
+                class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
+                title="编辑网址与 RSS 地址">编辑</button>
         <button onclick="openRules({{ site.id }}, '{{ site.name }}')"
                 class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
                 title="配置自定义规则">规则</button>
@@ -127,6 +149,11 @@
         <p class="mt-1 text-xs text-gray-400">不用写 https://，会自动补全</p>
       </div>
       <div>
+        <label class="block text-sm text-gray-700 mb-1.5">RSS 地址（选填）</label>
+        <input id="add-feed-url" placeholder="留空则自动发现，例如 /atom.xml"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
+      </div>
+      <div>
         <label class="block text-sm text-gray-700 mb-1.5">备注（选填）</label>
         <input id="add-note" placeholder="给自己看的备忘"
                class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
@@ -134,6 +161,51 @@
       <div class="flex gap-2 pt-1">
         <button type="submit" class="flex-1 py-2.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">添加</button>
         <button type="button" onclick="closeModal('add-modal')"
+                class="px-4 py-2.5 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---- 编辑友链弹窗 ---- #}
+<div id="edit-modal" class="hidden fixed inset-0 z-30 bg-black/40 grid place-items-center p-4">
+  <div class="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-medium">编辑友链</h2>
+      <button onclick="closeModal('edit-modal')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    <form id="edit-form" class="p-5 space-y-4" onsubmit="return submitEdit(event)">
+      <input type="hidden" id="edit-id">
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">名称</label>
+        <input id="edit-name" required
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">网站地址</label>
+        <input id="edit-url" required placeholder="example.com"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+        <p class="mt-1 text-xs text-gray-400">
+          改地址会重算去重指纹；若与已有友链同域会提示冲突。
+        </p>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">RSS 地址（选填）</label>
+        <input id="edit-feed-url" placeholder="例如：https://example.com/feed/ 或 /atom.xml"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
+        <p class="mt-1 text-xs text-gray-400">
+          填了就只抓这个地址，不再自动猜测。
+          末尾斜杠会原样保留——不少站点的 <code>/feed</code> 与 <code>/feed/</code> 是两个地址。
+        </p>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">备注（选填）</label>
+        <input id="edit-note" placeholder="给自己看的备忘"
+               class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none">
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="flex-1 py-2.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">保存</button>
+        <button type="button" onclick="closeModal('edit-modal')"
                 class="px-4 py-2.5 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
       </div>
     </form>
@@ -254,6 +326,9 @@
 
 {% block page_scripts %}
 let currentSiteId = null;
+// 站点数据缓存，编辑弹窗打开时从这里取当前值。
+// 用 JSON 块输出而不是 Jinja 的 tojson——后者对 ORM 对象不友好。
+const SITE_INDEX = JSON.parse(document.getElementById('site-index').textContent);
 
 function setFilter(f) {
   const url = new URL(location.href);
@@ -270,6 +345,36 @@ function openAdd() {
   openModal('add-modal');
 }
 
+// ---- 编辑友链 ----
+function openEdit(siteId) {
+  const site = SITE_INDEX.find(s => s.id === siteId);
+  if (!site) return showToast('站点数据没找到，刷新页面再试', false);
+  document.getElementById('edit-id').value = site.id;
+  document.getElementById('edit-name').value = site.name || '';
+  document.getElementById('edit-url').value = site.url || '';
+  document.getElementById('edit-feed-url').value = site.feed_url || '';
+  document.getElementById('edit-note').value = site.note || '';
+  openModal('edit-modal');
+}
+
+async function submitEdit(e) {
+  e.preventDefault();
+  const id = Number(document.getElementById('edit-id').value);
+  const body = {
+    name: document.getElementById('edit-name').value.trim(),
+    url: document.getElementById('edit-url').value.trim(),
+    // 空字符串表示清空 RSS 地址，后端会转成 null
+    feed_url: document.getElementById('edit-feed-url').value.trim(),
+    note: document.getElementById('edit-note').value.trim(),
+  };
+  try {
+    await api(`/api/sites/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    showToast('已保存');
+    setTimeout(() => location.reload(), 600);
+  } catch (err) { showToast(err.message, false); }
+  return false;
+}
+
 async function submitAdd(e) {
   e.preventDefault();
   try {
@@ -278,6 +383,7 @@ async function submitAdd(e) {
       body: JSON.stringify({
         name: document.getElementById('add-name').value,
         url: document.getElementById('add-url').value,
+        feed_url: document.getElementById('add-feed-url').value.trim() || null,
         note: document.getElementById('add-note').value || null,
       }),
     });

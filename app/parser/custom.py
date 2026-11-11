@@ -12,7 +12,7 @@ from urllib.parse import urljoin
 
 import html as html_module
 
-from app.core.security import request_url
+from app.core.security import article_url
 from app.parser.base import ParsedPost, ParsedSite
 from app.parser.fingerprint import parse_datetime_flexible
 
@@ -92,7 +92,7 @@ def parse_with_custom(
 
     if titles and links and len(titles) == len(links):
         site.name = titles[0]
-        site.url = request_url(urljoin(base_url, links[0]))
+        site.url = article_url(urljoin(base_url, links[0]))
         if avatars:
             site.avatar = urljoin(base_url, avatars[0])
         return site
@@ -107,7 +107,7 @@ def parse_with_custom(
     updated_values = rules._select(tree, "updated")
 
     for i in range(len(titles)):
-        link = request_url(urljoin(base_url, links[i]))
+        link = article_url(urljoin(base_url, links[i]))
         if not link:
             continue
 

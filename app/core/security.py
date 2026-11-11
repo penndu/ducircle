@@ -47,12 +47,16 @@ def verify_api_key(api_key: str, stored_hash: str) -> bool:
 def request_url(url: str, base: str | None = None) -> str:
     """规范化 URL 用于**实际发起网络请求**。
 
-    和 normalize_url 的区别：**保留 www. 前缀**。
+    和 normalize_url 的区别：**保留 www. 前缀和末尾斜杠**。
 
     normalize_url 是去重键——它把 www. 和裸域视为同一个站点，
     这样「同一个博客只能加一次」。但拿它去发请求会出事：
     很多国内博客只在 www 上配了 DNS，裸域直接 NXDOMAIN，
     于是抓取变成 ConnectError，而且日志里看不出是哪里错了。
+
+    末尾斜杠同理：/feed 和 /feed/ 在不少站点上是两个地址，
+    前者 301 跳后者，有些自建 CMS 只认带斜杠的。
+    用户手动填 RSS 地址时尤其不能动它。
 
     所以抓取、探活这类要真的发出去的请求，用这个函数；
     只有算哈希、查重、存库才用 normalize_url。
@@ -77,9 +81,25 @@ def request_url(url: str, base: str | None = None) -> str:
     if netloc.endswith(":80") or netloc.endswith(":443"):
         netloc = netloc.rsplit(":", 1)[0]
 
-    path = parts.path.rstrip("/") or "/"
+    path = parts.path or "/"
 
     return urlunsplit((scheme, netloc, path, parts.query, ""))
+
+
+def article_url(url: str, base: str | None = None) -> str:
+    """规范化**文章链接**（保留 www.，去掉末尾斜杠）。
+
+    与 request_url 的差别只在末尾斜杠：文章链接来自页面里的 href，
+    尾斜杠没有语义（/posts/123 和 /posts/123 是同一篇），
+    保留它只会让去重时出现两种写法。
+
+    与 normalize_url 的差别在 www.：文章链接后面还要去抓正文，
+    裸域不通的站点会直接抓不到。
+    """
+    normalized = request_url(url, base)
+    parts = urlsplit(normalized)
+    path = parts.path.rstrip("/") or "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
 
 def normalize_url(url: str, base: str | None = None) -> str:
