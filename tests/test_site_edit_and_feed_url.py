@@ -264,3 +264,36 @@ class TestFeedPathVariants:
 
         joined = urljoin("https://example.com", "/feed/")
         assert request_url(joined) == "https://example.com/feed/"
+
+
+class TestDetachedSiteCarriesFeedUrl:
+    """_DetachedSite 是脱离 ORM 会话的快照，必须带上 feed_url。
+
+    漏了的话，抓取时访问 site.feed_url 会抛
+    AttributeError: '_DetachedSite' object has no attribute 'feed_url'，
+    表现为「手动点抓取就报内部错误」。
+    """
+
+    def test_detached_site_has_feed_url_slot(self):
+        from app.services.crawl_service import _DetachedSite
+
+        assert "feed_url" in _DetachedSite.__slots__
+        site = _DetachedSite(1, "n", "https://x.com", 1, "https://x.com/feed/")
+        assert site.feed_url == "https://x.com/feed/"
+
+    def test_detached_site_feed_url_defaults_to_none(self):
+        from app.services.crawl_service import _DetachedSite
+
+        site = _DetachedSite(1, "n", "https://x.com", 1)
+        assert site.feed_url is None
+
+    def test_crawler_tolerates_missing_feed_url_attr(self):
+        """传入没有 feed_url 属性的对象也不能炸。"""
+        import inspect
+
+        from app.services.crawler import Crawler
+
+        src = inspect.getsource(Crawler.crawl_site_with_loaded_rules)
+        assert 'getattr(site, "feed_url", None)' in src, (
+            "应该用 getattr 兜底，防止对象缺 feed_url 属性时炸掉"
+        )

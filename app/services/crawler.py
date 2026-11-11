@@ -322,7 +322,9 @@ class Crawler:
             if rules is not None and rules.has_rules():
                 return await self._crawl_with_custom(site, rules, started)
 
-            return await self.crawl_site(site.url, feed_url=site.feed_url)
+            return await self.crawl_site(
+                site.url, feed_url=getattr(site, "feed_url", None)
+            )
         finally:
             await self._release()
 

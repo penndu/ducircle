@@ -33,15 +33,26 @@ class _DetachedSite:
 
     抓取阶段（网络 IO，可能几十秒）不应该占着数据库连接，
     所以把站点信息抄成这个轻量对象带着走，落库时再重新查一次。
+
+    feed_url 也要带上——用户在后台填了指定的 RSS 地址，
+    抓取时得用得上，不然这个功能等于没做。
     """
 
-    __slots__ = ("id", "name", "url", "user_id")
+    __slots__ = ("id", "name", "url", "user_id", "feed_url")
 
-    def __init__(self, site_id: int, name: str, url: str, user_id: int) -> None:
+    def __init__(
+        self,
+        site_id: int,
+        name: str,
+        url: str,
+        user_id: int,
+        feed_url: str | None = None,
+    ) -> None:
         self.id = site_id
         self.name = name
         self.url = url
         self.user_id = user_id
+        self.feed_url = feed_url
 
 
 async def crawl_all_pending(
@@ -206,10 +217,14 @@ async def _crawl_one(
             site_url = site.url
             site_name = site.name
             site_user_id = site.user_id
+            site_feed_url = site.feed_url
 
         # 第二段：真正抓取（网络 IO，不占用数据库连接）
         result = await crawler.crawl_site_with_loaded_rules(
-            _DetachedSite(site_id, site_name, site_url, site_user_id), rules
+            _DetachedSite(
+                site_id, site_name, site_url, site_user_id, site_feed_url
+            ),
+            rules,
         )
 
         # 第三段：落库（短会话）
@@ -294,10 +309,12 @@ async def crawl_single_site(user_id: int, site_id: int) -> CrawlResult:
             rules = await crawler.load_rules(db, site)
             site_url = site.url
             site_name = site.name
+            site_feed_url = site.feed_url
 
         # 第二段：抓取（网络 IO，不占数据库连接）
         result = await crawler.crawl_site_with_loaded_rules(
-            _DetachedSite(site_id, site_name, site_url, user_id), rules
+            _DetachedSite(site_id, site_name, site_url, user_id, site_feed_url),
+            rules,
         )
 
     # 第三段：落库
