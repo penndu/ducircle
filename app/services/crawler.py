@@ -41,6 +41,86 @@ from app.parser.heuristic import parse_with_heuristic, looks_like_article
 FAILURE_THRESHOLD = 5
 
 
+# 遇到明确拒绝时的降级 UA。
+#
+# 为什么要降级：有些站点会按 User-Agent 拦截「不像浏览器」的请求。
+# 默认用自研 bot UA 是对站主的尊重（可识别、可联系），
+# 但被明确拒绝（403/406/429）时，说明这个站不接受访问方式，
+# 换浏览器 UA 重试一次是合理的。
+#
+# 边界：
+# - 只在明确拒绝时降级，不对所有请求都伪装
+# - 每个请求最多降级一次，不轮换 UA（那等于 UA 攻击）
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# 拒绝类状态码。这些码明确表示「不接受这个请求」，而不是「没找到」。
+BLOCKED_STATUS = (403, 406, 429)
+
+
+def _browser_headers(referer: str | None = None) -> dict[str, str]:
+    """一套完整的浏览器请求头。
+
+    有些站点的反爬不只看 UA——Accept、Sec-Fetch-* 这些头缺了也会被拦。
+    """
+    headers = {
+        "User-Agent": BROWSER_UA,
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,*/*;q=0.8"
+        ),
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Sec-Ch-Ua": '"Chromium";v="120", "Not?A_Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    if referer:
+        headers["Referer"] = referer
+    return headers
+
+
+def _explain_http_status(status: int, url: str) -> str:
+    """给 HTTP 错误码一个能指导下一步的说法。
+
+    403/406/429 表示「拒绝了访问方式」，和 404「没这个页面」完全不同——
+    前者要换个访问方式或换 IP，后者只能放弃。
+    """
+    if status in (403, 406):
+        return (
+            f"HTTP {status}：站点拒绝了本服务的访问（{url}）。"
+            "已尝试更换 User-Agent 仍被拒，多半是按来源 IP 拦截，"
+            "本机浏览器能正常打开。"
+        )
+    if status == 429:
+        return (
+            f"HTTP 429：站点限流了（{url}）。"
+            "降低采集频率即可，稍后会自动重试。"
+        )
+    if status == 404:
+        return f"HTTP 404：页面不存在（{url}）"
+    return f"HTTP {status}: {url}"
+
+
+def _origin_of(url: str) -> str | None:
+    """取 URL 的 origin（协议 + 域名），用作 Referer。
+
+    有些站点会校验 Referer 是同源的，跨源或缺失都会被拦。
+    """
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return None
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def _explain_connect_error(error_name: str, url: str) -> str:
     """给连接类错误一个能指明方向的说法。
 
@@ -157,6 +237,13 @@ class Crawler:
                     resp = await self.client.get(url)
                     return resp.status_code, resp.text
                 resp = await self.client.get(url)
+                # 被明确拒绝时换浏览器 UA 重试一次（见 _fetch_final_url 的说明）
+                if resp.status_code in BLOCKED_STATUS:
+                    retry = await self.client.get(
+                        url, headers=_browser_headers(referer=_origin_of(url))
+                    )
+                    if retry.status_code not in BLOCKED_STATUS:
+                        return retry.status_code, retry.text
                 return resp.status_code, resp.text
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_error = type(exc).__name__
@@ -176,6 +263,16 @@ class Crawler:
         被重定向回首页——表现为「feed 找到了但 0 篇文章」。
         """
         resp = await self.client.get(url)
+
+        # 被明确拒绝时，换浏览器 UA 再试一次。
+        # 有些站点按 UA 拦截非浏览器请求，换个 UA 就能进。
+        if resp.status_code in BLOCKED_STATUS:
+            retry = await self.client.get(
+                url, headers=_browser_headers(referer=_origin_of(url))
+            )
+            if retry.status_code not in BLOCKED_STATUS:
+                return retry.status_code, retry.text, str(retry.url)
+
         return resp.status_code, resp.text, str(resp.url)
 
     async def crawl_site(self, url: str, feed_url: str | None = None) -> CrawlResult:
@@ -236,7 +333,7 @@ class Crawler:
                 url=url,
                 status="failed",
                 http_status=status,
-                error=f"HTTP {status}",
+                error=_explain_http_status(status, url),
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
 
