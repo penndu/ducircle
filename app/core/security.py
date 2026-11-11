@@ -44,12 +44,53 @@ def verify_api_key(api_key: str, stored_hash: str) -> bool:
     return secrets.compare_digest(hash_api_key(api_key), stored_hash)
 
 
+def request_url(url: str, base: str | None = None) -> str:
+    """规范化 URL 用于**实际发起网络请求**。
+
+    和 normalize_url 的区别：**保留 www. 前缀**。
+
+    normalize_url 是去重键——它把 www. 和裸域视为同一个站点，
+    这样「同一个博客只能加一次」。但拿它去发请求会出事：
+    很多国内博客只在 www 上配了 DNS，裸域直接 NXDOMAIN，
+    于是抓取变成 ConnectError，而且日志里看不出是哪里错了。
+
+    所以抓取、探活这类要真的发出去的请求，用这个函数；
+    只有算哈希、查重、存库才用 normalize_url。
+    """
+    if not url:
+        return ""
+
+    url = url.strip()
+    if base:
+        parts = urlsplit(url)
+        if not parts.scheme:
+            url = f"{base.rstrip('/')}/{url.lstrip('/')}"
+
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return url
+
+    scheme = parts.scheme.lower()
+
+    netloc = parts.netloc.lower()
+    # 去掉端口，仅保留默认端口。www. 必须保留。
+    if netloc.endswith(":80") or netloc.endswith(":443"):
+        netloc = netloc.rsplit(":", 1)[0]
+
+    path = parts.path.rstrip("/") or "/"
+
+    return urlunsplit((scheme, netloc, path, parts.query, ""))
+
+
 def normalize_url(url: str, base: str | None = None) -> str:
     """规范化 URL 用于去重。
 
     统一小写协议与主机名、去掉 www. 前缀、剥离追踪参数、去掉 fragment、
     去掉末尾斜杠。这样同一篇文章带 utm 参数分享、或从 www 与裸域分别访问，
     都会被识别为同一篇。
+
+    ⚠️ 这个结果**不要拿去发网络请求**——剥掉 www 之后，
+    很多只配了 www 的站点会直接连不上。要发请求请用 request_url。
     """
     if not url:
         return ""

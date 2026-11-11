@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.core.security import normalize_url
+from app.core.security import request_url
 from app.parser.base import ParsedPost, ParsedSite
 
 
@@ -202,7 +202,7 @@ def parse_with_framework(
                 continue
             from urllib.parse import urljoin
 
-            link = normalize_url(urljoin(base_url, href))
+            link = request_url(urljoin(base_url, href))
             # 归档页/标签页/根路径不是文章。卡片类选择器容易命中这类链接，
             # 不加这层过滤会把导航链接混进文章流。
             if not link or link in seen or not looks_like_article(link):

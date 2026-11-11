@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import time
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
@@ -24,7 +25,7 @@ from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
 from app.core.ratelimit import Semaphore
-from app.core.security import normalize_url, site_hash
+from app.core.security import normalize_url, request_url, site_hash
 from app.models import CrawlLog, Post, Site, SiteRule
 from app.parser.base import CrawlResult, ParsedSite
 from app.parser.custom import CustomRuleSet, parse_with_custom
@@ -38,6 +39,31 @@ from app.parser.heuristic import parse_with_heuristic, looks_like_article
 
 # 连续失败达到该次数后停止高频重试
 FAILURE_THRESHOLD = 5
+
+
+def _explain_failure(html: str) -> str:
+    """给「解析不出内容」一个能指导下一步的说明。
+
+    光说「四层策略都没解析出内容」用户完全不知道该怎么办。
+    最常见的原因是这是个纯前端 SPA——HTML 里没有正文，
+    文章要靠 JS 渲染或调私有 API 才能拿到。
+    """
+    # SPA 的典型特征：页面里有空的挂载点，脚本才是内容的来源
+    if re.search(
+        r'<div[^>]+id=["\'](app|root|__nuxt|__next)["\'][^>]*>\s*</div>',
+        html,
+        re.I,
+    ):
+        return (
+            "页面内容由 JavaScript 渲染，静态抓取拿不到文章；"
+            "该站需要自己提供 RSS 地址才能收录"
+        )
+    if "<script" in html and len(html) < 8000:
+        return (
+            "页面内容疑似由 JavaScript 渲染（响应体很小），"
+            "该站需要自己提供 RSS 地址才能收录"
+        )
+    return "四层策略均未解析出内容（可尝试为该站配置自定义规则）"
 
 
 class Crawler:
@@ -93,10 +119,22 @@ class Crawler:
                 break
         raise CrawlError(f"{last_error}: {url}")
 
+    async def _fetch_final_url(self, url: str) -> tuple[int, str, str]:
+        """请求并返回 (状态码, 正文, 重定向后的最终 URL)。
+
+        有些站点会把域名整个换掉（vjo.cc → liuz.cn）。
+        后续拼相对路径时必须用最终地址，否则 /feed 会拼到旧域名上，
+        被重定向回首页——表现为「feed 找到了但 0 篇文章」。
+        """
+        resp = await self.client.get(url)
+        return resp.status_code, resp.text, str(resp.url)
+
     async def crawl_site(self, url: str) -> CrawlResult:
         """抓取一个站点首页/文章列表页。不涉及数据库，可独立测试。"""
         started = time.monotonic()
-        url = normalize_url(url)
+        # 发请求用 request_url（保留 www.），不能用 normalize_url——
+        # 后者会剥掉 www.，很多站点裸域没有 DNS，抓取直接 ConnectError。
+        url = request_url(url)
 
         if not await self._respect_robots(url):
             return CrawlResult(
@@ -107,8 +145,15 @@ class Crawler:
             )
 
         try:
-            status, html = await self._fetch(url)
-        except CrawlError as exc:
+            status, html, final_url = await self._fetch_final_url(url)
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
+            return CrawlResult(
+                url=url,
+                status="failed",
+                error=f"{type(exc).__name__}: {url}",
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+        except Exception as exc:  # noqa: BLE001
             return CrawlResult(
                 url=url,
                 status="failed",
@@ -125,14 +170,19 @@ class Crawler:
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
 
-        site = await self._apply_strategies(url, html)
+        # 后续拼相对路径用重定向后的最终地址。
+        # 有些站点整个换域名（vjo.cc → liuz.cn），
+        # 用原地址拼出来的 /feed 会被重定向回首页，表现为「0 篇文章」。
+        base_url = request_url(final_url)
+
+        site = await self._apply_strategies(base_url, html)
 
         if site is None:
             return CrawlResult(
                 url=url,
                 status="failed",
                 http_status=status,
-                error="四层策略均未解析出内容",
+                error=_explain_failure(html),
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
 
@@ -155,9 +205,13 @@ class Crawler:
         self, url: str, html: str, rules: CustomRuleSet | None = None
     ) -> ParsedSite | None:
         """按优先级依次尝试各层策略。"""
-        # 第 1 层：RSS 自动发现
-        if await self._try_feed(url, html) is not None:
-            return await self._try_feed(url, html)  # noqa: F811
+        # 第 1 层：RSS 自动发现。
+        # 注意只调一次——之前写成 `if await self._try_feed(...) is not None:
+        # return await self._try_feed(...)`，等于把整个探测流程跑两遍，
+        # 每个候选路径都发两次请求。
+        feed = await self._try_feed(url, html)
+        if feed is not None:
+            return feed
 
         # 第 2 层：框架指纹
         framework = detect_framework(html)
@@ -170,12 +224,18 @@ class Crawler:
         return parse_with_heuristic(html, url)
 
     async def _try_feed(self, url: str, html: str) -> ParsedSite | None:
+        """尝试 RSS/Atom。
+
+        候选来源有两个：页面里声明的 <link rel="alternate">（最准），
+        以及一组常见路径（兜底）。两者都保留 www. 前缀。
+        """
         candidates: list[str] = []
         declared = discover_feed_url(html, url)
         if declared:
-            candidates.append(normalize_url(declared))
+            # 声明的地址最可信，优先试
+            candidates.append(request_url(declared))
         candidates.extend(
-            normalize_url(urljoin(url, path)) for path in COMMON_FEED_PATHS
+            request_url(urljoin(url, path)) for path in COMMON_FEED_PATHS
         )
 
         seen: set[str] = set()

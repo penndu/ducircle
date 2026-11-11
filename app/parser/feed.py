@@ -16,13 +16,25 @@ import feedparser
 from app.parser.base import ParsedPost, ParsedSite
 
 # 按成功率和大小排序的常见 feed 路径
+# 常见 feed 路径。兜底用——页面里没声明 <link rel="alternate"> 时盲猜。
+#
+# 顺序有意义：越常见的越靠前，先命中就能少发几个请求。
+# 注意带不带 www 由调用方决定：这里都是相对路径，
+# 调用方用 urljoin 拼上基准地址，保留原域的 www 前缀。
 COMMON_FEED_PATHS = (
     "/feed",
-    "/atom.xml",
-    "/index.xml",
+    "/feed/",
+    "/feed/rss/",
     "/rss.xml",
     "/feed.xml",
+    "/atom.xml",
+    "/index.xml",
     "/rss",
+    "/rss/",
+    "/blog/feed",
+    "/atom",
+    "/feeds/posts/default",  # Blogger
+    "/rss/index.xml",       # 各类 CMS 变体
 )
 
 FEED_MIME_TYPES = (

@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin
 
-from app.core.security import normalize_url
+from app.core.security import request_url
 from app.parser.base import ParsedPost, ParsedSite
 from app.parser.fingerprint import parse_datetime_flexible
 
@@ -28,6 +28,12 @@ CONTAINER_SELECTORS = (
     ".article-item",
     ".blog-list-item",
     ".post-list-item",
+    # 一些国内博客用 card / media 这类通用类名装文章卡片，
+    # 标题在 h4 a 里（见 chendd.cn）。
+    ".card-box",
+    ".media-body",
+    ".blog-card",
+    ".article-card",
 )
 
 # 标题链接候选。相对 href 必须以 / 开头或含年份/日期片段，
@@ -45,13 +51,20 @@ TITLE_SELECTORS = (
 
 DATE_SELECTORS = ("time[datetime]", "time", "[datetime]", ".date", ".post-date")
 
-# 归档页通常是 /2026/07/ 这类短路径
-ARCHIVE_PATH = re.compile(r"^/\d{4}/?\d{0,2}/?$")
-# 非文章路径：标签、分类、归档、关于、分页等。
+# 归档页通常是 /2026/07/ 这类「年/月」两段路径。
+# 注意只匹配带月份的那种：光秃秃的 /2026 可能是文章 ID
+# （有的博客直接拿递增数字做永久链接，如 liuz.cn 的 /2027）。
+ARCHIVE_PATH = re.compile(r"^/\d{4}/\d{1,2}/?$")
+# 非文章路径：标签、分类、关于、分页等。
 # 注意 /tags/python 这类标签后面跟的是任意 slug 而非数字，
 # 所以不能只匹配数字结尾。
+#
+# ⚠️ 这里**不能**包含 archives：
+# Typecho 的永久链接就是 /archives/158/，那正是文章本身；
+# 把 archives 当成归档页过滤，会把 Typecho 站点的文章全部丢掉。
+# 真正的归档页由上面那个 /2024/05/ 形态的 ARCHIVE_PATH 负责。
 TAG_PATH = re.compile(
-    r"^/(tag|tags|category|categories|archives?|about|page|search|author|sitemap)"
+    r"^/(tag|tags|category|categories|about|page|search|author|sitemap)"
     r"(/.*)?$",
     re.I,
 )
@@ -80,8 +93,14 @@ def looks_like_article(url: str) -> bool:
         return False
     if TAG_PATH.match(path):
         return False
-    # 纯数字分页，如 /2/
-    if re.fullmatch(r"/\d+/?", path):
+    # /archives/ 有两种含义：Typecho 的文章永久链接（/archives/158/），
+    # 以及真正的归档列表页（/archives/2024/、/archives/）。
+    # 只有「后面跟年份或为空」的那种才是列表页。
+    if re.match(r"^/archives?/?(\d{4})?/?$", path, re.I):
+        return False
+    # 纯数字分页，如 /2/。只挡 1~3 位——再长的数字更可能是文章 ID，
+    # 有些博客直接拿递增的数字做永久链接（liuz.cn 的 /2027）。
+    if re.fullmatch(r"/\d{1,3}/?", path):
         return False
     return True
 
@@ -147,7 +166,7 @@ def _extract_from_container(container, base_url: str):
         raw_href = node.attributes.get("href")
         if not raw_href:
             continue
-        candidate = normalize_url(urljoin(base_url, raw_href))
+        candidate = request_url(urljoin(base_url, raw_href))
         if not looks_like_article(candidate):
             continue
         text = node.text(strip=True)
