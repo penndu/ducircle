@@ -162,3 +162,74 @@ class TestFeedStrategyOnlyTriesOnce:
         async with Crawler() as crawler:
             await crawler._apply_strategies("https://example.com", "<html></html>")
         assert calls["n"] == 1, f"_try_feed 被调用了 {calls['n']} 次，应该只调 1 次"
+
+
+class TestDuplicateGuidHandling:
+    """guid_hash 重复不该让整个站点的抓取结果全丢。
+
+    生产库的 posts 表缺唯一约束，历史数据里存在重复行。
+    落库时用 scalar_one_or_none() 查重复文章，撞到多行直接抛
+    MultipleResultsFound——表现就是「某个站点永远抓失败」。
+    """
+
+    @staticmethod
+    def _code_lines(func) -> str:
+        """只取代码行，去掉注释和 docstring。
+
+        注释里会提到 scalar_one_or_none 这个词，不能算作实际使用。
+        """
+        import inspect
+
+        src = inspect.getsource(func)
+        lines = []
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            lines.append(line)
+        return "\n".join(lines)
+
+    @pytest.mark.asyncio
+    async def test_existing_post_lookup_tolerates_duplicates(self):
+        """查重复文章时用 first()，多行也只取一条。"""
+        from app.services.crawler import save_crawl_result
+
+        code = self._code_lines(save_crawl_result)
+        assert "scalar_one_or_none()" not in code, (
+            "查重复文章仍用 scalar_one_or_none()，遇到重复行会抛异常"
+        )
+        assert ".first()" in code
+
+    @pytest.mark.asyncio
+    async def test_resolve_site_id_tolerates_duplicates(self):
+        from app.services.crawler import _resolve_site_id
+
+        code = self._code_lines(_resolve_site_id)
+        assert "scalar_one_or_none()" not in code
+        assert ".first()" in code
+
+    def test_migration_exists(self):
+        """补唯一约束的迁移必须在，否则新库同样会缺。"""
+        from pathlib import Path
+
+        migrations = Path("alembic/versions")
+        names = {p.name for p in migrations.glob("*.py")}
+        assert any("guid_unique" in n for n in names), (
+            "缺少补 posts 唯一约束的迁移"
+        )
+
+    def test_migration_cleans_duplicates_before_creating_constraint(self):
+        """迁移必须先清重复再建约束，否则 MySQL 会拒绝。"""
+        from pathlib import Path
+
+        content = (
+            Path("alembic/versions/0004_post_guid_unique.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert "deleted_at = NOW()" in content
+        assert "create_unique_constraint" in content
+        # 清理语句必须排在建约束之前
+        assert content.index("deleted_at = NOW()") < content.index(
+            "create_unique_constraint"
+        )

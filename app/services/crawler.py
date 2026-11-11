@@ -397,13 +397,21 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
             from app.core.security import guid_hash
 
             gh = guid_hash(link)
+            # 用 scalars().first() 而不是 scalar_one_or_none()——
+            # 历史数据里可能存在重复的 guid_hash（唯一约束是后补的），
+            # scalar_one_or_none() 遇到多行会直接抛 MultipleResultsFound，
+            # 整个站点的抓取结果全丢。
             existing = (
-                await session.execute(
-                    select(Post).where(
-                        Post.user_id == site.user_id, Post.guid_hash == gh
+                (
+                    await session.execute(
+                        select(Post)
+                        .where(Post.user_id == site.user_id, Post.guid_hash == gh)
+                        .order_by(Post.id)
                     )
                 )
-            ).scalar_one_or_none()
+                .scalars()
+                .first()
+            )
 
             if existing is not None:
                 # 已存在：只刷新可能变化的字段
@@ -475,11 +483,16 @@ async def _resolve_site_id(session, article_url: str, current_site: Site) -> int
         return None
 
     target_hash = site_hash(article_url)
-    stmt = select(SiteModel).where(
-        SiteModel.user_id == current_site.user_id,
-        SiteModel.url_hash == target_hash,
+    stmt = (
+        select(SiteModel)
+        .where(
+            SiteModel.user_id == current_site.user_id,
+            SiteModel.url_hash == target_hash,
+        )
+        .order_by(SiteModel.id)
     )
-    matched = (await session.execute(stmt)).scalar_one_or_none()
+    # 同样用 first() 而非 scalar_one_or_none()：同一 host 可能有多条历史记录
+    matched = (await session.execute(stmt)).scalars().first()
     if matched is not None:
         return matched.id
     return current_site.id
