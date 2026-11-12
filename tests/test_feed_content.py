@@ -303,3 +303,27 @@ class TestSalvageSummary:
             '{"summary": "x", "score": 99}'
         )
         assert score == 10.0
+
+    def test_truncated_json_keeps_tail(self):
+        """JSON 被截断时，内容要保到末尾。
+
+        实测踩过：max_tokens 不够，模型没写完就停了，
+        输出是 `{"summary":"作者把 Multica 用作 Agent 看板：...配置 Code`。
+        """
+        from app.services.llm import parse_summary_response
+
+        truncated = (
+            '{"summary":"作者把 Multica 用作 Agent 看板：任务以 issue 形式流转，'
+            '本机 daemon 作为 runtime 接入，可为不同 Agent 配置 Code'
+        )
+        s, score, reason = parse_summary_response(truncated)
+        assert not s.lstrip().startswith('{"summary"')
+        assert s.endswith("配置 Code"), f"截断的尾巴丢了：{s[-30:]!r}"
+
+    def test_salvage_keeps_score_when_json_broken(self):
+        from app.services.llm import parse_summary_response
+
+        broken = '{"summary": "作者说"这是关键", "score": 8, "reason": "有洞见"}'
+        s, score, reason = parse_summary_response(broken)
+        assert score == 8.0
+        assert reason == "有洞见"

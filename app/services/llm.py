@@ -270,18 +270,40 @@ def parse_summary_response(text: str) -> tuple[str, float | None, str | None]:
 def _salvage_summary(text: str) -> tuple[str, float | None, str | None] | None:
     """从不合法 JSON 里抢救出 summary / score / reason。
 
-    模型返回的 JSON 经常因为摘要里出现了未转义的引号而解析失败。
-    直接把原文当摘要存，用户看到的就是 `{"summary":"作者...` 这种东西。
-    这里用宽松的正则把字段值抠出来——内容有点损，但比暴露 JSON 原文强。
+    模型返回的 JSON 经常因为摘要里出现了未转义的引号而解析失败，
+    或者因为 max_tokens 截断而没写完。直接��原文当摘要存，
+    用户看到的就是 `{"summary":"作者...` 这种东西，比没摘要更糟。
+
+    这里用宽松的方式把内容抠出来：
+    - summary 取 `"summary":"` 之后的内容
+    - 如果后面跟着 `, "score": ...` 这样的后续字段，截掉
+    - 结尾的 `"` / `"}` 等残留也去掉
     """
-    m = re.search(r'"summary"\s*:\s*"(.*?)"\s*(?:,|\})', text, re.S)
+    m = re.search(r'"summary"\s*:\s*"', text)
     if not m:
         return None
-    summary = m.group(1).strip()
+    body = text[m.end():]
+
+    # JSON 完整闭合（结尾有 `"}` 或 `"` + 后续字段）时，取到闭合引号为止；
+    # 被截断（没有闭合）时，内容就是到末尾为止——
+    # 这种情况不能按「最后一个引号」截断，否则正文里的引号会把尾巴切掉。
+    closed = re.search(r'"\s*(?:,\s*"(?:score|reason)"|\s*})', body)
+    if closed:
+        summary = body[: closed.start()]
+    else:
+        summary = body
+
+    summary = summary.strip()
     if not summary:
         return None
-    # 去掉转义残留
-    summary = summary.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+    # 反转义
+    summary = (
+        summary.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+    )
+    # 收尾：可能残留 `"` 或 `"}` 之类
+    summary = summary.rstrip('"').rstrip("}").strip()
+    if not summary:
+        return None
 
     score = None
     ms = re.search(r'"score"\s*:\s*([0-9.]+)', text)
