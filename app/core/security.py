@@ -149,8 +149,31 @@ def normalize_url(url: str, base: str | None = None) -> str:
 
 
 def guid_hash(url: str) -> str:
-    """文章去重指纹。"""
+    """文章去重指纹（按规范化 URL 算）。
+
+    ⚠️ 这个算法**不要改**——历史文章的 guid_hash 是按它算的，
+    改了会导致所有存量文章被当成新文章重新入库一遍。
+    新增的「跨永久链接去重」用另一个字段 content_hash，见 content_hash()。
+    """
     return hashlib.sha1(normalize_url(url).encode("utf-8")).hexdigest()
+
+
+def content_hash(guid: str | None, site_id: int | None = None) -> str | None:
+    """跨永久链接的文章指纹（基于 RSS guid）。
+
+    WordPress 的 guid 是 `https://site/?p=2281`——文章 ID，
+    不随永久链接结构（/2026/10/2281/ ↔ /post/2281/）或域名
+    （.com ↔ .cn）变化。用它做去重，同一篇文章只会入库一次。
+
+    site_id 参与计算：不同站点完全可能都有 /post/2281/，
+    只按 ID 算会把它们误判成同一篇。
+
+    没有 guid 就返回 None，调用方回退到 guid_hash。
+    """
+    if not guid:
+        return None
+    raw = f"site:{site_id}:id:{guid}" if site_id is not None else f"id:{guid}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def site_hash(url: str) -> str:

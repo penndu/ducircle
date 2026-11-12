@@ -49,6 +49,21 @@ class Post(Base, TimestampMixin, SoftDeleteMixin):
     # 规范化 URL 的 SHA1。博主换域名后老链接仍能命中同一篇文章。
     guid_hash: Mapped[str] = mapped_column(String(40), nullable=False)
 
+    # 跨永久链接的文章指纹（基于 RSS guid，WordPress 是 ?p=2281 这种文章 ID）。
+    #
+    # 为什么需要第二个键：guid_hash 按完整 URL 算，而同一个 WordPress 文章
+    # 的 URL 可能是三种形态——
+    #   /2026/10/2281/   （旧的日期式永久链接）
+    #   /post/2281/      （改用 post 永久链接后）
+    #   另一个域名/post/2281/  （换了域名）
+    # 三者 URL 不同 → guid_hash 不同 → 同一篇文章被当成三篇入库。
+    # content_hash 只认文章 ID，与 permalink 结构和域名都无关。
+    #
+    # 可为空：非 feed 来源的站点没有 guid。没有它的行按 guid_hash 去重。
+    content_hash: Mapped[str | None] = mapped_column(
+        String(40), default=None, index=True
+    )
+
     created: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     # published 与 updated 都缺失时的兜底，避免文章显示成"今天"

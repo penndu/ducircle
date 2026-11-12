@@ -18,6 +18,10 @@ class ParsedPost:
     created: datetime | None = None
     updated: datetime | None = None
     strategy: str = ""
+    # RSS 的 guid（WordPress 是 ?p=12345 这种文章 ID）。
+    # 比 link 稳定：永久链接结构变了（/2026/10/2281/ → /post/2281/）、
+    # 换域名了（.com → .cn），guid 都不变——去重靠它。
+    guid: str | None = None
 
     def __post_init__(self) -> None:
         self.title = (self.title or "").strip()

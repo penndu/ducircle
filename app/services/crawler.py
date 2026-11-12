@@ -596,34 +596,65 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
             if not link:
                 continue
 
-            from app.core.security import guid_hash
+            from app.core.security import content_hash, guid_hash
 
             gh = guid_hash(link)
+            site_id = await _resolve_site_id(session, parsed.link, site)
+            if site_id is None:
+                continue
+
+            # content_hash 基于 RSS guid（WordPress 是文章 ID），
+            # 不随永久链接结构或域名变化——同一篇文章换个链接形态也能认出来。
+            #
+            # ⚠️ 必须在确定 site_id 之后才算：指纹里带 site_id，
+            # 而文章最终归属哪个站点由 _resolve_site_id 决定（按 host 匹配）。
+            # 先算就会用错站点的 id，指纹对不上，去重等于没做。
+            ch = content_hash(parsed.guid, site_id=site_id)
+
             # 用 scalars().first() 而不是 scalar_one_or_none()——
             # 历史数据里可能存在重复的 guid_hash（唯一约束是后补的），
             # scalar_one_or_none() 遇到多行会直接抛 MultipleResultsFound，
             # 整个站点的抓取结果全丢。
-            existing = (
-                (
-                    await session.execute(
-                        select(Post)
-                        .where(Post.user_id == site.user_id, Post.guid_hash == gh)
-                        .order_by(Post.id)
+            existing = None
+            if ch is not None:
+                existing = (
+                    (
+                        await session.execute(
+                            select(Post)
+                            .where(
+                                Post.user_id == site.user_id,
+                                Post.content_hash == ch,
+                            )
+                            .order_by(Post.id)
+                        )
                     )
+                    .scalars()
+                    .first()
                 )
-                .scalars()
-                .first()
-            )
+            if existing is None:
+                existing = (
+                    (
+                        await session.execute(
+                            select(Post)
+                            .where(
+                                Post.user_id == site.user_id,
+                                Post.guid_hash == gh,
+                            )
+                            .order_by(Post.id)
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
 
             if existing is not None:
                 # 已存在：只刷新可能变化的字段
                 if parsed.title and existing.title != parsed.title:
                     existing.title = parsed.title
                 existing.strategy = parsed.strategy or existing.strategy
-                continue
-
-            site_id = await _resolve_site_id(session, parsed.link, site)
-            if site_id is None:
+                # 老数据可能还没回填 content_hash，顺手补上
+                if ch is not None and not existing.content_hash:
+                    existing.content_hash = ch
                 continue
 
             session.add(
@@ -633,6 +664,7 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
                     title=parsed.title,
                     link=link,
                     guid_hash=gh,
+                    content_hash=ch,
                     created=parsed.created,
                     updated=parsed.updated,
                     crawled_at=now,

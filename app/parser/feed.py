@@ -113,10 +113,49 @@ def parse_feed(content: bytes, feed_url: str, base_url: str) -> ParsedSite | Non
                 created=created or updated,
                 updated=updated or created,
                 strategy="feed",
+                guid=_extract_guid(entry, link),
             )
         )
 
     return site if site.posts else None
+
+
+def _extract_guid(entry, fallback_link: str) -> str | None:
+    """从 feed 条目里取 guid。
+
+    WordPress 的 guid 是 `https://site/?p=12345`——文章 ID，
+    跟永久链接结构、域名都无关。博主改 permalink 结构（/2026/10/2281/
+    换成 /post/2281/）或换域名（.com 换 .cn）时，guid 保持不变，
+    用它做去重键才不会把同一篇文章当成多篇。
+
+    取不到就返回 None，让调用方回退到按 link 去重。
+    """
+    raw = entry.get("id") or entry.get("guid") or ""
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    if not raw:
+        return None
+
+    # guid 常常就是 permalink 本身（isPermaLink=true），
+    # 那种情况下它跟 link 一样不稳定，交给调用方按 link 处理。
+    if _strip_scheme(raw) == _strip_scheme(fallback_link):
+        return None
+
+    # WordPress 的 ?p=12345 形态：只留 ID 部分，域名无关
+    if "?p=" in raw:
+        tail = raw.split("?p=", 1)[1].split("&", 1)[0].strip()
+        if tail.isdigit():
+            return f"wp:{tail}"
+
+    return raw
+
+
+def _strip_scheme(url: str) -> str:
+    """去掉协议和 www.，用于比较两个 URL 是否指向同一篇。"""
+    without_scheme = url.split("://", 1)[-1]
+    without_scheme = without_scheme.removeprefix("www.")
+    return without_scheme.rstrip("/").lower()
 
 
 def _to_datetime(time_tuple) -> datetime | None:
