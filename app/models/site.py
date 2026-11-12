@@ -65,6 +65,15 @@ class Site(Base, TimestampMixin, SoftDeleteMixin):
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0,
                                                       nullable=False)
 
+    # 暂停采集。连续失败超过阈值（PAUSE_AFTER_FAILURES）后置位，
+    # 定时抓取会跳过它，必须由用户手动恢复。
+    #
+    # 为什么不用 active 表达：active=False 是用户主动停用，
+    # 语义不同——不该在恢复时把用户自己关的站点打开。
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    paused_reason: Mapped[str | None] = mapped_column(Text, default=None)
+
     last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     last_success_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=None, index=True

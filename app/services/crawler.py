@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import re
 import time
@@ -37,8 +38,21 @@ from app.parser.feed import (
 from app.parser.fingerprint import detect_framework, parse_with_framework
 from app.parser.heuristic import parse_with_heuristic, looks_like_article
 
+logger = logging.getLogger("ducircle.crawl")
+
 # 连续失败达到该次数后停止高频重试
 FAILURE_THRESHOLD = 5
+
+# 连续失败达到该次数后彻底暂停采集，等用户手动恢复。
+#
+# 和 FAILURE_THRESHOLD 的区别：
+# - FAILURE_THRESHOLD（5 次）→ 降频，最少 7 天抓一次，仍会继续试
+# - PAUSE_AFTER_FAILURES（10 次）→ 暂停，完全不再自动抓
+#
+# 为什么要有后者：有些站点是彻底挂了（域名过期、服务器下线），
+# 降频后还是每 7 天骚扰一次，永远失败还污染失败列表。
+# 暂停后需要用户确认「这站还能用」或「填好 RSS 地址了」才恢复。
+PAUSE_AFTER_FAILURES = 10
 
 
 # 遇到明确拒绝时的降级 UA。
@@ -655,6 +669,9 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
                 # 老数据可能还没回填 content_hash，顺手补上
                 if ch is not None and not existing.content_hash:
                     existing.content_hash = ch
+                # feed 里的全文可能是后补的（站点改了 feed 设置）
+                if parsed.content and not existing.raw_content:
+                    existing.raw_content = parsed.content
                 continue
 
             session.add(
@@ -665,6 +682,7 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
                     link=link,
                     guid_hash=gh,
                     content_hash=ch,
+                    raw_content=parsed.content,
                     created=parsed.created,
                     updated=parsed.updated,
                     crawled_at=now,
@@ -681,6 +699,11 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
         site.last_crawled_at = now
         site.last_success_at = now
         site.crawl_interval_hours = 12
+        # 抓取成功了就不再暂停——用户可能已经手动修好了 RSS 地址
+        if site.paused:
+            site.paused = False
+            site.paused_at = None
+            site.paused_reason = None
     else:
         site.error = result.status == "failed"
         site.error_message = result.error
@@ -689,6 +712,23 @@ async def save_crawl_result(session, site: Site, result: CrawlResult) -> int:
         # 连续失败则逐步降频，最多每 7 天一次，避免反复骚扰已下线站点
         if site.consecutive_failures >= FAILURE_THRESHOLD:
             site.crawl_interval_hours = min(24 * 7, 12 * site.consecutive_failures)
+        # 失败够多次就彻底停下，等用户手动处理。
+        # 降频只是「少来几次」，站点照样会被反复骚扰；
+        # 暂停才是真正的「别再试了，等我修好再说」。
+        if (
+            site.consecutive_failures >= PAUSE_AFTER_FAILURES
+            and not site.paused
+        ):
+            site.paused = True
+            site.paused_at = now
+            site.paused_reason = (
+                f"连续失败 {site.consecutive_failures} 次，已暂停采集。"
+                f"最后一次错误：{result.error or '未知'}"
+            )
+            logger.info(
+                "站点 %d（%s）连续失败 %d 次，暂停采集",
+                site.id, site.name, site.consecutive_failures,
+            )
 
     session.add(
         CrawlLog(

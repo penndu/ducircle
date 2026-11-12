@@ -141,7 +141,7 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
     if site:
         site_url = site.url
 
-    content = await _fetch_and_extract(post.link, site_url)
+    content = await _extract_content(post, site_url)
     if not content:
         logger.info("文章 %d 正文抽取失败，跳过摘要", post.id)
         return None
@@ -215,6 +215,29 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
     )
 
     return {"summary": summary, "score": score, "model": client.model}
+
+
+async def _extract_content(post, site_url: str | None) -> str | None:
+    """拿到文章正文。
+
+    两条路：
+    1. **feed 里存的全文**——抓文章时从 RSS 的 content:encoded 顺手存下的。
+       对「文章页是 SPA 骨架页」的站点这是唯一可行的途径：
+       那些站返回的 HTML 只有一两 KB，正文全靠 JS 渲染，静态抓取拿不到。
+    2. **抓文章页再抽取**——常规站点走这条，正文更完整（含更新后的内容）。
+
+    优先用 1：它是现成的，不用再发请求，速度快一个数量级。
+    抽不出（feed 没带全文、或者内容不像正文）再退到 2。
+    """
+    # 第 1 条：feed 全文
+    raw = getattr(post, "raw_content", None)
+    if raw:
+        text = extract_content(raw, post.link)
+        if text and len(text) >= 120:
+            return text
+
+    # 第 2 条：抓文章页
+    return await _fetch_and_extract(post.link, site_url)
 
 
 async def _fetch_and_extract(link: str, site_url: str | None) -> str | None:

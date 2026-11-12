@@ -114,10 +114,29 @@ def parse_feed(content: bytes, feed_url: str, base_url: str) -> ParsedSite | Non
                 updated=updated or created,
                 strategy="feed",
                 guid=_extract_guid(entry, link),
+                content=_extract_content(entry),
             )
         )
 
     return site if site.posts else None
+
+
+def _extract_content(entry) -> str | None:
+    """取 RSS 条目里的全文。
+
+    WordPress 的 feed 默认带 content:encoded（全文 HTML）。
+    对「文章页是 SPA 骨架页」的站点，这是唯一能拿到正文的途径——
+    那些站返回的 HTML 只有一两 KB，正文全靠 JS 渲染。
+
+    只认 content:encoded（全文），不认 summary（那是摘要，通常只有几十字）。
+    """
+    contents = entry.get("content") or []
+    if isinstance(contents, list):
+        for item in contents:
+            value = item.get("value") if isinstance(item, dict) else None
+            if value and len(value) > 200:
+                return value
+    return None
 
 
 def _extract_guid(entry, fallback_link: str) -> str | None:

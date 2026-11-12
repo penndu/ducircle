@@ -22,6 +22,9 @@ class ParsedPost:
     # 比 link 稳定：永久链接结构变了（/2026/10/2281/ → /post/2281/）、
     # 换域名了（.com → .cn），guid 都不变——去重靠它。
     guid: str | None = None
+    # RSS 里带的全文（content:encoded）。有些站点文章页是 SPA 骨架页，
+    # 静态抓取拿不到正文，但 feed 里带着完整内容——这时用它。
+    content: str | None = None
 
     def __post_init__(self) -> None:
         self.title = (self.title or "").strip()

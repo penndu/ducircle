@@ -66,6 +66,10 @@ class SiteOut(BaseModel):
     error: bool
     error_message: str | None
     consecutive_failures: int
+    # 暂停采集：连续失败过多后自动置位，需手动恢复
+    paused: bool = False
+    paused_at: datetime | None = None
+    paused_reason: str | None = None
     last_crawled_at: datetime | None
     last_success_at: datetime | None
     post_count: int = 0
@@ -238,6 +242,49 @@ async def update_site(
 
     for field, value in data.items():
         setattr(site, field, value)
+
+    await db.flush()
+    return SiteOut.model_validate(site)
+
+
+@router.post("/{site_id}/resume", response_model=SiteOut, summary="恢复采集")
+async def resume_site(
+    site_id: int, user: CurrentUserSession, db: DbSession
+) -> SiteOut:
+    """恢复一个被暂停的站点。
+
+    暂停的成因是「连续失败太多次」，可能已经过时——
+    用户可能换了 RSS 地址、改了域名，或者站点本身修好了。
+    恢复时清零失败计数，让它从正常频率重新开始试。
+    """
+    site = await _get_site_or_404(db, site_id)
+
+    site.paused = False
+    site.paused_at = None
+    site.paused_reason = None
+    site.consecutive_failures = 0
+    site.error = False
+    site.error_message = None
+    site.crawl_interval_hours = 12
+
+    await db.flush()
+    return SiteOut.model_validate(site)
+
+
+@router.post("/{site_id}/pause", response_model=SiteOut, summary="暂停采集")
+async def pause_site(
+    site_id: int, user: CurrentUserSession, db: DbSession
+) -> SiteOut:
+    """手动暂停一个站点。
+
+    用户主动暂停的站点不该被「连续失败自动暂停」覆盖，
+    也不该在恢复时被意外打开——但恢复是显式操作，所以没问题。
+    """
+    site = await _get_site_or_404(db, site_id)
+
+    site.paused = True
+    site.paused_at = datetime.now()
+    site.paused_reason = "用户手动暂停采集"
 
     await db.flush()
     return SiteOut.model_validate(site)

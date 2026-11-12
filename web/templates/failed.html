@@ -25,6 +25,11 @@
           <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 shrink-0">
             连续失败 {{ site.consecutive_failures }} 次
           </span>
+          {% if site.paused %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">
+            已暂停采集
+          </span>
+          {% endif %}
         </div>
 
         <p class="text-xs text-gray-400 mt-1 truncate">{{ site.url }}</p>
@@ -42,8 +47,13 @@
       </div>
 
       <div class="flex gap-1.5 shrink-0">
+        {% if site.paused %}
+        <button onclick="resumeSite({{ site.id }}, this)"
+                class="px-2 py-1 rounded text-xs border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100">恢复采集</button>
+        {% else %}
         <button onclick="crawlAgain({{ site.id }}, this)"
                 class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50">重试</button>
+        {% endif %}
         <a href="/web/sites"
            class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50">配规则</a>
       </div>
@@ -138,6 +148,21 @@ async function crawlAgain(id, btn) {
     showToast(e.message, false);
     btn.disabled = false;
     btn.textContent = '重试';
+  }
+}
+
+// 恢复一个被暂停的站点
+async function resumeSite(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await api(`/api/sites/${id}/resume`, { method: 'POST' });
+    showToast('已恢复采集，将按正常频率重试');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast(e.message, false);
+    btn.disabled = false;
+    btn.textContent = '恢复采集';
   }
 }
 

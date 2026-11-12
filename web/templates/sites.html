@@ -60,7 +60,10 @@
           <a href="{{ site.url }}" target="_blank" rel="noopener noreferrer"
              class="font-medium text-gray-900 hover:underline truncate">{{ site.name }}</a>
 
-          {% if site.error %}
+          {% if site.paused %}
+          <span class="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0"
+                title="{{ site.paused_reason or '已暂停采集' }}">已暂停采集</span>
+          {% elif site.error %}
           <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 shrink-0">抓取失败</span>
           {% elif not site.active %}
           <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">已停用</span>
@@ -92,15 +95,28 @@
         </p>
         {% endif %}
 
+        {% if site.paused %}
+        <p class="text-xs text-amber-700 mt-2 px-2 py-1.5 rounded bg-amber-50 break-words">
+          {{ site.paused_reason or '已暂停采集' }}
+          {% if site.paused_at %}· 暂停于 {{ site.paused_at | ago }}{% endif %}
+        </p>
+        {% endif %}
+
         {% if site.note %}
         <p class="text-xs text-gray-500 mt-2 px-2 py-1 rounded bg-gray-50">{{ site.note }}</p>
         {% endif %}
       </div>
 
       <div class="flex gap-1.5 shrink-0">
+        {% if site.paused %}
+        <button onclick="resumeSite({{ site.id }}, this)"
+                class="px-2 py-1 rounded text-xs border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                title="恢复自动采集">恢复</button>
+        {% else %}
         <button onclick="crawlNow({{ site.id }}, this)"
                 class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
                 title="立即抓取">抓取</button>
+        {% endif %}
         <button onclick="openEdit({{ site.id }})"
                 class="px-2 py-1 rounded text-xs border border-gray-200 hover:bg-gray-50"
                 title="编辑网址与 RSS 地址">编辑</button>
@@ -403,6 +419,21 @@ async function crawlNow(id, btn) {
     showToast(e.message, false);
     btn.disabled = false;
     btn.textContent = '抓取';
+  }
+}
+
+// 恢复一个被暂停的站点（连续失败过多后自动暂停）
+async function resumeSite(id, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await api(`/api/sites/${id}/resume`, { method: 'POST' });
+    showToast('已恢复采集，将按正常频率重试');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast(e.message, false);
+    btn.disabled = false;
+    btn.textContent = '恢复';
   }
 }
 

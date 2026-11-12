@@ -154,7 +154,12 @@ async def _crawl_user_sites(
     settings = get_settings()
 
     async with db_factory() as db:
-        stmt = select(Site).where(Site.active.is_(True))
+        # paused 的站点一律跳过——包括手动「立即抓取全部」。
+        # 暂停的意思是「等用户处理」，用户要恢复得显点「恢复采集」，
+        # 不该被批量抓取绕过。
+        stmt = select(Site).where(
+            Site.active.is_(True), Site.paused.is_(False)
+        )
 
         if not force:
             # 上次抓过且间隔不够的站点先跳过，避免重复打扰对方服务器。

@@ -64,6 +64,14 @@ class Post(Base, TimestampMixin, SoftDeleteMixin):
         String(40), default=None, index=True
     )
 
+    # RSS feed 里带的全文（content:encoded）。
+    #
+    # 为什么存：有些站点的文章页是 SPA 骨架页，返回的 HTML 只有一两 KB，
+    # 正文全靠 JS 渲染——静态抓取拿不到正文，90% 的文章因此生成不了摘要。
+    # 但这些站点的 feed 通常带着全文（WordPress 默认如此），
+    # 抓取时顺手存下来，摘要生成直接用，不用再抓一次页面。
+    raw_content: Mapped[str | None] = mapped_column(Text, default=None)
+
     created: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     # published 与 updated 都缺失时的兜底，避免文章显示成"今天"
