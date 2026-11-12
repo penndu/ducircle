@@ -199,6 +199,9 @@ async def reset_summary(
     post.ai_reason = None
     post.summary_content_hash = None
     post.summary_edited = False
+    # 一并清掉「永久失败」标记——用户手动点了就是想让重试
+    post.summary_failed = False
+    post.summary_error = None
     return {"ok": True}
 
 

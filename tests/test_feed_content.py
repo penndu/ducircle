@@ -150,3 +150,90 @@ class TestRawContentStorage:
         assert path.exists()
         content = path.read_text(encoding="utf-8")
         assert "raw_content" in content
+
+
+class TestSummaryFailedMarker:
+    """永久性失败的文章不该被反复重试。"""
+
+    def test_model_has_failed_fields(self):
+        from app.models.post import Post
+
+        cols = Post.__table__.columns
+        assert "summary_failed" in cols
+        assert "summary_error" in cols
+
+    def test_batch_query_skips_failed(self):
+        """批量生成要跳过永久失败的文章。"""
+        import inspect
+
+        from app.services.ai_summary import summarize_pending_for_user
+
+        src = inspect.getsource(summarize_pending_for_user)
+        assert "Post.summary_failed.is_(False)" in src, (
+            "批量生成要跳过 summary_failed 的文章"
+        )
+
+    def test_reset_clears_failed_flag(self):
+        """手动点「重新生成」要清掉失败标记。"""
+        import inspect
+
+        from app.api.ai import reset_summary
+
+        src = inspect.getsource(reset_summary)
+        assert "summary_failed = False" in src
+        assert "summary_error = None" in src
+
+    @pytest.mark.asyncio
+    async def test_permanent_failure_marked(self, monkeypatch):
+        """不可重试的 LLM 错误要标记文章。"""
+        from app.models import Base, Post, Site, User
+        from app.parser.base import ParsedPost, ParsedSite
+        from app.services.ai_summary import summarize_post
+        from app.services.llm import LLMError
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with factory() as db:
+            user = User(username="u1", password_hash="x", ai_api_key="k")
+            db.add(user)
+            await db.flush()
+            site = Site(user_id=user.id, name="s", url="https://x.com", url_hash="h")
+            db.add(site)
+            await db.flush()
+            post = Post(
+                user_id=user.id, site_id=site.id, title="一",
+                link="https://x.com/p/1/", guid_hash="g1",
+                raw_content="<p>" + "正文内容。" * 100 + "</p>",
+            )
+            db.add(post)
+            await db.flush()
+
+            class _FailClient:
+                model = "test"
+
+                async def complete(self, *a, **kw):
+                    raise LLMError("请求被拒 422", retryable=False)
+
+            import app.services.ai_summary as mod
+
+            orig = mod._build_client
+            mod._build_client = lambda u, s: (_FailClient(), "test")
+            try:
+                await summarize_post(post, user, db)
+            finally:
+                mod._build_client = orig
+
+            assert post.summary_failed is True, "不可重试的失败应标记"
+            assert post.summary_error
+            assert post.summary is None
+
+        await engine.dispose()

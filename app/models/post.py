@@ -72,6 +72,16 @@ class Post(Base, TimestampMixin, SoftDeleteMixin):
     # 抓取时顺手存下来，摘要生成直接用，不用再抓一次页面。
     raw_content: Mapped[str | None] = mapped_column(Text, default=None)
 
+    # 摘要生成永久失败（如模型内容安全拦截）。
+    #
+    # 为什么要记：这类失败重试多少次都一样，
+    # 每轮批量生成都会重新选中它——白费时间和额度。
+    # 记下来后直接跳过，等用户手动点「重新生成」才重试。
+    summary_failed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    summary_error: Mapped[str | None] = mapped_column(Text, default=None)
+
     created: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     # published 与 updated 都缺失时的兜底，避免文章显示成"今天"

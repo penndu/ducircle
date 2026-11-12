@@ -185,7 +185,11 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
         if exc.retryable:
             logger.warning("文章 %d 摘要失败（可重试）：%s", post.id, exc)
         else:
-            logger.warning("文章 %d 摘要失败：%s", post.id, exc)
+            # 不可重试的失败（如模型内容安全拦截）——再试多少次都一样。
+            # 标记出来，以后批量生成直接跳过，不浪费时间和额度。
+            logger.warning("文章 %d 摘要失败（不再重试）：%s", post.id, exc)
+            post.summary_failed = True
+            post.summary_error = str(exc)[:500]
         return None
 
     summary, score, reason = parse_summary_response(raw)
@@ -296,6 +300,9 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
                     Post.summary.is_(None),
                     Post.summary_edited.is_(False),
                     Post.deleted_at.is_(None),
+                    # 永久失败的文章不再重试（模型内容安全拦截等），
+                    # 否则每轮批量生成都会重新选中它，白费额度
+                    Post.summary_failed.is_(False),
                 )
                 .order_by(desc_nulls_last(Post.created))
                 .limit(limit)
