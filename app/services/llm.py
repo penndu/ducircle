@@ -255,8 +255,48 @@ def parse_summary_response(text: str) -> tuple[str, float | None, str | None]:
         return summary, score, (str(reason).strip() if reason else None)
 
     except (json.JSONDecodeError, ValueError, TypeError):
-        # 模型没按要求返回 JSON，直接把文本当摘要用
+        # 模型没按要求返回 JSON。可能是：
+        #   a) 直接输出了纯文本摘要——那当摘要用是对的
+        #   b) 输出了**不合法**的 JSON（摘要里有未转义的引号/换行）——
+        #      这种情况下整段当摘要存进库，页面上会出现
+        #      `{"summary":"作者...` 这种原文，比没摘要更糟
+        # 先试着从半截 JSON 里把 summary 抠出来，抠不出再当纯文本。
+        salvaged = _salvage_summary(cleaned)
+        if salvaged is not None:
+            return salvaged
         return cleaned[:500], None, None
+
+
+def _salvage_summary(text: str) -> tuple[str, float | None, str | None] | None:
+    """从不合法 JSON 里抢救出 summary / score / reason。
+
+    模型返回的 JSON 经常因为摘要里出现了未转义的引号而解析失败。
+    直接把原文当摘要存，用户看到的就是 `{"summary":"作者...` 这种东西。
+    这里用宽松的正则把字段值抠出来——内容有点损，但比暴露 JSON 原文强。
+    """
+    m = re.search(r'"summary"\s*:\s*"(.*?)"\s*(?:,|\})', text, re.S)
+    if not m:
+        return None
+    summary = m.group(1).strip()
+    if not summary:
+        return None
+    # 去掉转义残留
+    summary = summary.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+
+    score = None
+    ms = re.search(r'"score"\s*:\s*([0-9.]+)', text)
+    if ms:
+        try:
+            score = max(0.0, min(10.0, float(ms.group(1))))
+        except ValueError:
+            score = None
+
+    reason = None
+    mr = re.search(r'"reason"\s*:\s*"(.*?)"\s*(?:,|\})', text, re.S)
+    if mr:
+        reason = mr.group(1).strip().replace('\\"', '"').replace("\\n", "\n") or None
+
+    return summary, score, reason
 
 
 import re  # noqa: E402  （放在末尾避免与上方 logger 定义冲突时的可读性问题）

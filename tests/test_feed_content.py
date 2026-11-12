@@ -237,3 +237,69 @@ class TestSummaryFailedMarker:
             assert post.summary is None
 
         await engine.dispose()
+
+
+class TestSalvageSummary:
+    """模型返回不合法 JSON 时，不能把原文当摘要存进库。
+
+    实测踩过：模型返回的 JSON 里摘要含未转义引号，
+    json.loads 失败，fallback 把半截 `{"summary":"作者...` 存进了数据库，
+    页面上直接显示 JSON 原文——比没摘要更糟。
+    """
+
+    def test_valid_json_unchanged(self):
+        from app.services.llm import parse_summary_response
+
+        s, score, reason = parse_summary_response(
+            '{"summary": "作者讲了一件事", "score": 7.5, "reason": "有价值"}'
+        )
+        assert s == "作者讲了一件事"
+        assert score == 7.5
+        assert reason == "有价值"
+
+    def test_broken_json_salvaged(self):
+        """JSON 不合法时也要能抠出 summary。"""
+        from app.services.llm import parse_summary_response
+
+        broken = '{"summary": "作者说"这是关键", "score": 8, "reason": "有洞见"}'
+        s, score, reason = parse_summary_response(broken)
+        assert s is not None
+        assert not s.lstrip().startswith('{"summary"'), "不能暴露 JSON 原文"
+        assert "作者说" in s
+        assert score == 8.0
+
+    def test_plain_text_fallback(self):
+        """纯文本摘要照常当摘要用。"""
+        from app.services.llm import parse_summary_response
+
+        s, score, reason = parse_summary_response("这是一段纯文本摘要，不带 JSON。")
+        assert s == "这是一段纯文本摘要，不带 JSON。"
+        assert score is None
+
+    def test_empty_summary_not_salvaged(self):
+        from app.services.llm import parse_summary_response
+
+        s, score, reason = parse_summary_response(
+            '{"summary": "", "score": 5}'
+        )
+        assert s == ""
+        assert score is None
+
+    def test_no_summary_key_returns_empty(self):
+        """合法 JSON 但没有 summary 字段 → 视为没生成出来。
+
+        不能当纯文本存——存进去用户看到的就是 `{"foo": "bar"}`。
+        """
+        from app.services.llm import parse_summary_response
+
+        s, score, reason = parse_summary_response('{"foo": "bar"}')
+        assert s == ""
+        assert score is None
+
+    def test_score_clamped(self):
+        from app.services.llm import parse_summary_response
+
+        s, score, reason = parse_summary_response(
+            '{"summary": "x", "score": 99}'
+        )
+        assert score == 10.0
