@@ -100,14 +100,17 @@ async def _run_crawl(user_id: int, site_id: int) -> None:
             {
                 "state": "done",
                 "crawled": 1 if result.status == "success" else 0,
-                "new_posts": result.post_count or 0,
+                # 用 new_posts（真正新增的），不是 post_count（本次抓到的）。
+                # 重复抓取时抓到 10 篇但新增 0 篇，报「新增 10 篇」是误导。
+                "new_posts": result.new_posts or 0,
                 "failed": 0 if result.status == "success" else 1,
                 "error": result.error,
             },
         )
         logger.info(
-            "手动抓取完成：site=%d status=%s strategy=%s posts=%d",
+            "手动抓取完成：site=%d status=%s strategy=%s posts=%d new=%d",
             site_id, result.status, result.strategy, result.post_count,
+            result.new_posts,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("手动抓取失败：site=%d", site_id)

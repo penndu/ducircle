@@ -65,3 +65,7 @@ class CrawlResult:
     duration_ms: int = 0
     post_count: int = 0
     site: ParsedSite | None = None
+    # 本次真正**新增**的文章数。
+    # 和 post_count（「本次抓到几篇」）不是一回事——
+    # 重复抓取时抓到 10 篇但新增 0 篇，两者混用会误导用户。
+    new_posts: int = 0

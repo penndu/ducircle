@@ -318,15 +318,20 @@ async def crawl_single_site(user_id: int, site_id: int) -> CrawlResult:
         )
 
     # 第三段：落库
+    new_posts = 0
     async with session_scope() as db, as_tenant_async(user_id):
         site = (
             await db.execute(select(Site).where(Site.id == site_id))
         ).scalar_one_or_none()
         if site is None:
             raise ValueError("站点不存在")
-        await save_crawl_result(db, site, result)
+        new_posts = await save_crawl_result(db, site, result)
         await db.commit()
 
+    # 把「新增几篇」带上——post_count 是「本次抓到几篇」，
+    # 两者不同：重复抓取时抓到 10 篇但新增 0 篇，
+    # 前端显示「新增 10 篇」会误导用户。
+    result.new_posts = new_posts
     return result
 
 

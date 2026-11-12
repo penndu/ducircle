@@ -199,6 +199,95 @@ class TestCrawlerDedup:
         await engine.dispose()
 
 
+class TestNewPostsCounting:
+    """「本次抓到几篇」和「真正新增几篇」必须分开。
+
+    混用的后果：重复抓取时抓到 10 篇但一篇没新增，
+    前端显示「新增 10 篇」——用户以为抓取有问题，其实一切正常。
+    """
+
+    def test_crawl_result_has_new_posts_field(self):
+        from app.parser.base import CrawlResult
+
+        r = CrawlResult(url="https://x.com", status="success")
+        assert r.new_posts == 0
+        assert r.post_count == 0
+
+    def test_admin_uses_new_posts_not_post_count(self):
+        """单站点抓取的状态里，new_posts 必须用 new_posts。"""
+        import inspect
+
+        from app.api.admin import _run_crawl
+
+        src = inspect.getsource(_run_crawl)
+        assert '"new_posts": result.new_posts' in src, (
+            "应该用 result.new_posts（真正新增），不是 result.post_count（本次抓到）"
+        )
+        assert '"new_posts": result.post_count' not in src
+
+    @pytest.mark.asyncio
+    async def test_recrawl_reports_zero_new(self, monkeypatch):
+        """重复抓取同一篇文章，应该报告新增 0 篇。"""
+        from app.models import Base, Post, Site, User
+        from app.parser.base import CrawlResult, ParsedPost, ParsedSite
+        from app.services.crawler import save_crawl_result
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with factory() as db:
+            user = User(username="u1", password_hash="x")
+            db.add(user)
+            await db.flush()
+            site = Site(user_id=user.id, name="s", url="https://a.com", url_hash="h")
+            db.add(site)
+            await db.flush()
+
+            result = CrawlResult(
+                url="https://a.com",
+                status="success",
+                strategy="feed",
+                post_count=1,
+                site=ParsedSite(
+                    url="https://a.com",
+                    name="s",
+                    strategy="feed",
+                    posts=[
+                        ParsedPost(
+                            title="一",
+                            link="https://a.com/post/1/",
+                            strategy="feed",
+                            guid="wp:1",
+                        )
+                    ],
+                ),
+            )
+
+            n1 = await save_crawl_result(db, site, result)
+            await db.commit()
+            n2 = await save_crawl_result(db, site, result)
+            await db.commit()
+
+            assert n1 == 1
+            assert n2 == 0, f"重复抓取应新增 0 篇，实际 {n2}"
+
+            rows = (
+                await db.execute(select(Post).where(Post.site_id == site.id))
+            ).scalars().all()
+            assert len(rows) == 1
+
+        await engine.dispose()
+
+
 class TestModelField:
     def test_content_hash_column_exists(self):
         from app.models.post import Post
