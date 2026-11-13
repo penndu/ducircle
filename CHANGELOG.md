@@ -7,6 +7,45 @@
 
 ---
 
+## [2.0.1] - 2026-11-13
+
+修复「API Key 无效」的反馈：**Key 本身没有变过，问题出在设置页看不到它**。
+
+### 修复
+
+- **设置页现在能随时查看 API Key**（`api_key_plain`，迁移 0011）
+
+  之前库里只存哈希，明文仅在注册那一刻返回一次。没当场复制的话，
+  设置页永远显示「（暂无）」。用户看到这个提示会以为 Key 丢了，
+  于是去点「重新生成」——而重新生成**必然改变 Key**，博客前端随即全线 401。
+  **「看不到」被这个设计逼成了「Key 变了」。**
+
+  现在明文会随注册/重新生成一并保存，设置页直接展示（默认打码，可点击显示、复制）。
+  鉴权仍然只比对 `api_key_hash`，明文不参与校验。
+
+- **修掉 `ctx.update(api_key_display=new_key)` 无条件覆盖的 bug**
+
+  设置页渲染时用一次性 Cookie 的值覆盖了上下文，没有 Cookie 时就是空字符串，
+  于是页面必然显示「（暂无）」。
+
+- **存量账号可「认领已有 Key」**（`POST /api/users/me/api-key/import`）
+
+  早期账号的明文无从还原，这一列为 NULL。在设置页粘贴正在使用的 Key，
+  校验 sha256 通过后只写入明文副本，**`api_key_hash` 不动**——
+  Key 一个字符都不变，博客配置也不用改。
+
+### 新增
+
+- 设置页 Key 支持显示/隐藏切换，重新生成的确认文案改为明确说明后果
+
+### 内部
+
+- 迁移 `0011_user_api_key_plain`
+- 新增 18 个用例（`test_api_key_stable.py`）：覆盖
+  「登录/改设置/改密码/渲染页面都不许改 Key」这条不变量
+
+---
+
 ## [2.0.0] - 2026-11-13
 
 从「单人自用工具」升级为**多用户平台**：任何访客都能注册使用，
@@ -160,6 +199,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[2.0.1]: https://github.com/penndu/ducircle/releases/tag/v2.0.1
 [2.0.0]: https://github.com/penndu/ducircle/releases/tag/v2.0.0
 [1.1.0]: https://github.com/penndu/ducircle/releases/tag/v1.1.0
 [1.0.1]: https://github.com/penndu/ducircle/releases/tag/v1.0.1

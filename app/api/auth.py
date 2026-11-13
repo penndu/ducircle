@@ -108,6 +108,7 @@ async def register(
         password_hash=hash_password(payload.password),
         email=payload.email,
         api_key_hash=hash_api_key(api_key),
+        api_key_plain=api_key,
         is_admin=is_first_user,
         last_login_ip=client_ip(request),
     )
@@ -184,6 +185,9 @@ async def regenerate_key(user: CurrentUserSession, db: DbSession) -> KeyResponse
     """重新生成会立即作废旧 Key——博客前端需要同步更新配置。"""
     api_key = generate_api_key()
     user.api_key_hash = hash_api_key(api_key)
+    # 同步明文副本：设置页要能随时查看，否则用户只能靠「重新生成」
+    # 找回 Key，而重新生成等于更换 Key。
+    user.api_key_plain = api_key
     await db.flush()
     return KeyResponse(api_key=api_key)
 

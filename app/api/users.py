@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.api.deps import CurrentUserSession, DbSession
-from app.core.security import generate_api_key, hash_api_key
+from app.core.security import generate_api_key, hash_api_key, verify_api_key
 from app.core.session import SESSION_COOKIE
 from app.models import CrawlLog, Post, Site, SiteRule
 
@@ -33,6 +33,11 @@ class UserSettingsUpdate(BaseModel):
     # 采集频率（cron 表达式）。空字符串表示用平台默认。
     crawl_cron: str | None = None
     link_page_cron: str | None = None
+
+
+class ApiKeyImport(BaseModel):
+    # 只做格式下限校验，真正的判断是 sha256 是否等于库里的哈希。
+    api_key: str = Field(min_length=8, max_length=128)
 
 
 @router.patch("/me", summary="更新我的设置")
@@ -181,8 +186,38 @@ async def purge_my_data(
 async def reset_api_key(user: CurrentUserSession, db: DbSession) -> dict:
     key = generate_api_key()
     user.api_key_hash = hash_api_key(key)
+    # 明文副本同步更新，否则设置页又会退回「（暂无）」
+    user.api_key_plain = key
     await db.flush()
     return {"api_key": key}
+
+
+@router.post("/me/api-key/import", summary="认领已有 API Key")
+async def import_api_key(
+    payload: ApiKeyImport, user: CurrentUserSession, db: DbSession
+) -> dict:
+    """把正在使用的 Key 认领进账号，之后设置页就能一直看到它。
+
+    只为存量账号存在：v2.0.1 之前只存哈希，明文无从还原，
+    于是设置页永远显示「（暂无）」——用户会误以为 Key 丢了，
+    转而去「重新生成」，而重新生成必然换掉 Key。
+
+    这里**只写入明文副本，不改 api_key_hash**：
+    Key 本身一个字符都不变，鉴权结果自然也不变，
+    博客前端不需要改配置。
+
+    判断依据是 sha256 是否等于库里的哈希——相等才说明
+    这确实是本人当前使用的那个 Key，别人拿到别人的 Key 也认领不了。
+    """
+    key = payload.api_key.strip()
+    if not user.api_key_hash or not verify_api_key(key, user.api_key_hash):
+        raise HTTPException(
+            status_code=400, detail="这个 Key 与当前账号不匹配"
+        )
+
+    user.api_key_plain = key
+    await db.flush()
+    return {"ok": True, "api_key": key}
 
 @router.get("/me/cron-presets", summary="采集频率预设")
 async def cron_presets(user: CurrentUserSession) -> dict:

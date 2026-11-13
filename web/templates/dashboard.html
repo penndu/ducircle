@@ -408,10 +408,14 @@
         <div class="ds-card-head"><h2 class="ds-card-title">API Key</h2>
           <span class="ds-badge">前端接入用</span></div>
         <p style="font-size:12px;color:var(--ds-muted);margin:0 0 12px;line-height:1.7">
-          完整 Key 只显示一次，泄露了就重新生成。
+          {% if api_key_needs_import %}
+          这个账号的 Key 明文没保存下来，去「设置」认领一次就能一直看到。
+          {% else %}
+          随时可查看；只有点「重新生成」才会变，变了博客前端要同步替换。
+          {% endif %}
         </p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <input readonly value="{{ api_key_display or '（暂无，请重新生成）' }}"
+          <input readonly type="password" value="{{ api_key_display or '（暂无）' }}"
                  id="api-key-box" class="ds-key">
           <button onclick="copyKey()" class="ds-btn ds-btn-ghost ds-btn-sm">复制</button>
           <button onclick="regenerateKey()" class="ds-btn ds-btn-danger ds-btn-sm">重新生成</button>

@@ -140,8 +140,13 @@ class TestApiKeyVisibility:
         assert client.cookies[NEW_KEY_COOKIE].startswith("fc_")
 
     @pytest.mark.asyncio
-    async def test_settings_page_shows_key_once(self, client):
-        """设置页展示明文，然后立刻删掉这个一次性 Cookie。"""
+    async def test_settings_page_shows_key_persistently(self, client):
+        """设置页随时都能看到明文 Key（v2.0.1 起）。
+
+        以前只在注册后那一次显示，之后永远显示「（暂无）」。
+        用户看到「暂无」会以为 Key 丢了，转而去点「重新生成」，
+        而重新生成必然改变 Key ——「看不到」被逼成了「Key 变了」。
+        """
         from app.core.session import NEW_KEY_COOKIE
 
         r = await client.post(
@@ -154,15 +159,18 @@ class TestApiKeyVisibility:
         r = await client.get("/web/settings")
         assert r.status_code == 200
         assert key in r.text, "设置页必须把明文 Key 显示出来"
-        assert "只显示这一次" in r.text
 
-        # 第二次访问不再有「新 Key」提示
+        # 再访问一次仍然看得到：明文已落库，不再依赖一次性 Cookie
         r = await client.get("/web/settings")
-        assert key not in r.text
+        assert key in r.text, "重复访问设置页也应该能看到 Key"
 
     @pytest.mark.asyncio
     async def test_key_is_stored_hashed(self, client):
-        """数据库里不能有明文。"""
+        """鉴权字段是哈希，不是明文。
+
+        v2.0.1 起另外存了一份明文副本（api_key_plain），
+        但那只是为了设置页能显示；实际校验始终比对 api_key_hash。
+        """
         from sqlalchemy import select
 
         import app.db as db_module
@@ -181,3 +189,5 @@ class TestApiKeyVisibility:
             assert user is not None
             assert user.api_key_hash != raw_key
             assert raw_key not in (user.api_key_hash or "")
+            # 明文副本与鉴权字段分开存放，且确实是这一把 Key
+            assert user.api_key_plain == raw_key

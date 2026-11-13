@@ -41,9 +41,25 @@ class User(Base, TimestampMixin):
     )
     email: Mapped[str | None] = mapped_column(String(128), default=None)
 
-    # 只读接口用的 Key。数据库只存哈希，明文仅在注册成功时返回一次。
+    # 只读接口用的 Key。鉴权比对的是 api_key_hash，明文不参与校验。
     api_key_hash: Mapped[str | None] = mapped_column(String(64), default=None,
                                                       unique=True)
+
+    # API Key 的明文副本，只为「设置页能查看」而存在。
+    #
+    # 为什么要把明文也存下来（v2.0.1 起）：
+    # 只存哈希时，用户一旦没在注册那一屏复制走，明文就永久丢失——
+    # 设置页只能显示「（暂无）」。用户看到这个提示会以为 Key 丢了，
+    # 于是去点「重新生成」，而重新生成必然改变 Key，
+    # 博客前端立刻全线 401。**这个设计会把「看不到」逼成「Key 变了」**。
+    #
+    # 安全权衡：Key 是只读的（只能读到该用户自己的公开文章数据），
+    # 泄露的影响面远小于写权限凭证。相比「用户被迫重置导致服务中断」，
+    # 这个取舍更划算。真要更严，可改为用独立的 KEY_ENCRYPTION_SECRET
+    # 做可逆加密——但不能复用 SECRET_KEY，否则换密钥时所有 Key 一起解不开。
+    #
+    # 存量用户该字段为 NULL：明文无从还原，需用「导入已有 Key」认领。
+    api_key_plain: Mapped[str | None] = mapped_column(String(64), default=None)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

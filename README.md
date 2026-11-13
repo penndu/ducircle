@@ -1,12 +1,12 @@
 # 友链朋友圈 ducircle
 
-[![版本](https://img.shields.io/badge/version-v2.0.0-2563eb)](https://github.com/penndu/ducircle/releases/tag/v2.0.0)
+[![版本](https://img.shields.io/badge/version-v2.0.1-2563eb)](https://github.com/penndu/ducircle/releases/tag/v2.0.1)
 [![许可](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 面向博客主的公开友链聚合服务。自动发现友链的 RSS、
 自动识别博客框架，把好友的更新汇聚成一条时间流。
 
-线上：<https://ducircle.dusays.com> · 当前版本：**v2.0.0**
+线上：<https://ducircle.dusays.com> · 当前版本：**v2.0.1**
 
 ---
 

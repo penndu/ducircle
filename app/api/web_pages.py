@@ -207,10 +207,17 @@ async def _page_context(request: Request, user: User, counts: dict, page: str) -
         "current_user": user,
         "current_page": page,
         "counts": counts,
-        # 数据库存的是 API Key 的哈希，无法还原明文。
-        # 页面上展示哈希前 8 位作为标识，用户需要明文时走「重新生成」。
+        # 设置页直接展示明文 Key（v2.0.1 起）。
+        #
+        # 之前这里恒为空字符串，页面只能显示「（暂无）」。
+        # 用户看到「暂无」会以为 Key 丢了，转而去点「重新生成」，
+        # 而重新生成必然改变 Key——「看不到」被逼成了「Key 变了」。
+        #
+        # 存量账号这一列为 NULL（明文无从还原），页面会引导
+        # 用户用「认领已有 Key」补上，Key 本身不变。
         "api_key_hint": (user.api_key_hash or "")[:8],
-        "api_key_display": "",
+        "api_key_display": user.api_key_plain or "",
+        "api_key_needs_import": not user.api_key_plain,
     }
 
 
@@ -386,8 +393,13 @@ async def settings_page(
 
     settings = get_settings()
 
-    # 注册后的一次性 Key：只在这一次请求里展示，展示完立刻删掉 Cookie。
-    # 数据库只存哈希，不这样做的话用户永远看不到自己的明文 Key。
+    # 注册后的一次性 Cookie 只是为了多显示一条「账号创建成功」的提示，
+    # 不再承担「唯一一次看到明文」的职责。
+    #
+    # 这里曾经写成 api_key_display=new_key（无条件覆盖），
+    # 没带 Cookie 时就是空字符串 —— 设置页于是永远显示「（暂无）」，
+    # 用户以为 Key 丢了只能去点「重新生成」。现在优先用库里的明文，
+    # 只有刚注册那一刻才用 Cookie 里的值。
     new_key = request.cookies.get(NEW_KEY_COOKIE, "")
 
     ctx.update(
@@ -403,7 +415,7 @@ async def settings_page(
         default_link_cron=settings.link_page_cron,
         default_link_cron_desc=describe_cron(settings.link_page_cron),
         allow_registration=settings.allow_registration,
-        api_key_display=new_key,
+        api_key_display=new_key or user.api_key_plain or "",
         api_key_is_new=bool(new_key),
     )
     response = render(request, "settings.html", ctx)
@@ -633,14 +645,15 @@ async def register_submit(
         password_hash=hash_password(password),
         email=email.strip() or None,
         api_key_hash=hash_api_key(api_key),
+        api_key_plain=api_key,
         is_admin=int(user_count) == 0,
         last_login_ip=client_ip(request),
     )
     db.add(user)
     await db.commit()
 
-    # 跳设置页而不是概览页：API Key 只在注册这一刻能拿到，
-    # 直接跳概览会让新用户永远看不到自己的 Key，只能去点「重新生成」。
+    # 跳设置页：新用户一进来就能看到自己的 Key 并复制。
+    # 即使这次没复制，明文也已经在库里，以后随时能查看。
     resp = RedirectResponse("/web/settings", status_code=status.HTTP_303_SEE_OTHER)
     resp.set_cookie(
         SESSION_COOKIE, write_session(user.id), **session_cookie_kwargs()
