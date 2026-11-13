@@ -90,9 +90,23 @@ class Settings(BaseSettings):
 
     # ---- 跨域 ----
     # 允许哪些站点从浏览器直接调只读 API（/v1/*）。
-    # 逗号分隔的域名列表，空表示不开放跨域。
-    # 不能设成 "*"：请求要带 X-API-Key 头，开放通配等于把 Key 暴露给任何站点。
-    cors_origins: str = ""
+    #
+    # 默认 "*" —— 不限制调用网站。博主把博客放在哪个域名都不用改配置，
+    # 这是「API 支持跨站使用」的默认行为。
+    # 安全性由 API Key 保证：/v1/* 只读、不用 Cookie，
+    # 放开来源不会带来 CSRF 风险（后台 /api/* 不开放跨域）。
+    #
+    # 想收紧就填逗号分隔的域名白名单，例如：
+    #   CORS_ORIGINS=https://dusays.com,https://www.dusays.com
+    cors_origins: str = "*"
+
+    # ---- 注册 ----
+    # 是否开放自助注册。
+    #
+    # 关闭后 /web/register 会提示「暂不开放注册」，
+    # 新账号只能由管理员在「用户管理」页创建。
+    # 公共实例默认开放——平台的价值在于让访客能自己用起来。
+    allow_registration: bool = True
 
     # ---- AI 摘要 ----
     ai_enabled: bool = True

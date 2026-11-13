@@ -118,6 +118,24 @@ async def require_page_user(
     return user
 
 
+async def require_page_admin(
+    user: Annotated[User, Depends(require_page_user)],
+) -> User:
+    """页面级管理员校验。
+
+    普通用户直接访问 /web/admin/* 返回 403，而不是「页面能打开但里面是空的」——
+    后者会让人以为系统坏了。
+    """
+    from fastapi import HTTPException, status
+
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return user
+
+
 async def nav_counts(db: AsyncSession) -> dict:
     """导航栏上的计数，让用户一眼看到有多少站点出问题。"""
     sites = (await db.execute(select(func.count(Site.id)))).scalar_one()

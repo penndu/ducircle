@@ -48,6 +48,18 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # ---- 平台管理 ----
+    # 管理员给这个账号写的备注（为什么禁用、工单号等）。
+    # 只有管理员能看到，普通用户在设置页看不到这一列。
+    admin_note: Mapped[str | None] = mapped_column(String(255), default=None)
+
+    # 最后一次登录的来源 IP。
+    #
+    # 为什么要存：账号被批量注册、被撞库时，管理员需要看到「同一个 IP
+    # 注册了几十个号」。只存最后一条，不建日志表——审计需求由一个
+    # 独立的管理操作日志承担（见 2.1.0），这里只做快速定位。
+    last_login_ip: Mapped[str | None] = mapped_column(String(64), default=None)
+
     # AI 摘要配置：用户可自带 Key 以摆脱平台额度限制
     ai_provider: Mapped[str | None] = mapped_column(String(32), default=None)
     ai_api_key: Mapped[str | None] = mapped_column(String(256), default=None)

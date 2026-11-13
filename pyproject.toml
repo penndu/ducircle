@@ -1,7 +1,7 @@
 [project]
 name = "ducircle"
-version = "1.1.0"
-description = "友链朋友圈 — 面向博客主的公开友链聚合服务"
+version = "2.0.0"
+description = "友链朋友圈 — 多用户友链聚合平台，面向所有想经营友链的博客主"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }

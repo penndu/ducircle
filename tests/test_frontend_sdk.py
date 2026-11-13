@@ -196,11 +196,80 @@ class TestCorsMiddleware:
         )
         assert "access-control-allow-origin" not in r.headers
 
-    def test_default_origins_is_empty(self):
-        """默认不开放跨域——要开必须显式配置。"""
+    def test_default_origins_allow_any(self):
+        """默认不限制调用网站——任何站点都能跨站调 /v1/*。
+
+        安全性由 API Key 保证：/v1/* 只读、不用 Cookie，
+        放开来源不会带来 CSRF 风险（/api/*、/web/* 仍不开放跨域）。
+        """
         from app.core.config import get_settings
 
-        assert get_settings().cors_origins == ""
+        assert get_settings().cors_origins == "*"
+
+    @pytest.mark.asyncio
+    async def test_wildcard_allows_unknown_origin(self):
+        """配置成 * 时，任意来源的预检都应放行。"""
+        from app.api.cors_middleware import CorsMiddleware
+
+        reached: list = []
+
+        async def _app(scope, receive, send):
+            reached.append(scope["path"])
+            await send(
+                {"type": "http.response.start", "status": 200, "headers": []}
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        mw = CorsMiddleware(_app, allowed_origins=["*"])
+
+        sent: list = []
+
+        async def _send(message):
+            sent.append(message)
+
+        async def _receive():
+            return {"type": "http.request", "body": b""}
+
+        scope = {
+            "type": "http",
+            "method": "OPTIONS",
+            "path": "/v1/all",
+            "headers": [(b"origin", b"https://any-blog.example")],
+        }
+        await mw(scope, _receive, _send)
+
+        assert sent[0]["status"] == 204
+        headers = dict(sent[0]["headers"])
+        assert headers[b"access-control-allow-origin"] == b"https://any-blog.example"
+        assert not reached, "预检不该进业务逻辑"
+
+    @pytest.mark.asyncio
+    async def test_whitelist_still_rejects_unknown_origin(self):
+        """配置了具体白名单时，未列出的来源仍然 403。"""
+        from app.api.cors_middleware import CorsMiddleware
+
+        async def _app(scope, receive, send):
+            raise AssertionError("预检不该进业务逻辑")
+
+        mw = CorsMiddleware(_app, allowed_origins=["https://x.com"])
+
+        sent: list = []
+
+        async def _send(message):
+            sent.append(message)
+
+        async def _receive():
+            return {"type": "http.request", "body": b""}
+
+        scope = {
+            "type": "http",
+            "method": "OPTIONS",
+            "path": "/v1/all",
+            "headers": [(b"origin", b"https://evil.example")],
+        }
+        await mw(scope, _receive, _send)
+
+        assert sent[0]["status"] == 403
 
     def test_middleware_normalizes_origins(self):
         from app.api.cors_middleware import CorsMiddleware
@@ -210,6 +279,7 @@ class TestCorsMiddleware:
 
         mw = CorsMiddleware(_noop, allowed_origins=["https://x.com/", "  ", ""])
         assert mw.allowed == {"https://x.com"}
+        assert mw.allow_any is False
 
 
 class TestFrontendSdkFiles:

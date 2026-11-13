@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, sta
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import func, select
 
-from app.api.deps import validate_registration
+from app.api.deps import client_ip, validate_registration
 from app.core.security import (
     generate_api_key,
     hash_api_key,
@@ -25,7 +25,12 @@ from app.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CrawlLog, Post, Site, User
 from app.core.zh_sort import to_pinyin
-from app.web import nav_counts, render, require_page_user
+from app.web import (
+    nav_counts,
+    render,
+    require_page_admin,
+    require_page_user,
+)
 from app.core.sql_compat import desc_nulls_last
 
 router = APIRouter(prefix="/web", tags=["后台页面"])
@@ -373,12 +378,18 @@ async def settings_page(
     user: Annotated[User, Depends(require_page_user)],
 ) -> Response:
     from app.core.config import get_settings
+    from app.core.session import NEW_KEY_COOKIE
 
     ctx = await _page_context(request, user, await nav_counts(db), "settings")
     from app.core.cron import CRON_PRESETS, describe_cron
     from app.services.llm import PROVIDER_DISPLAY_NAMES
 
     settings = get_settings()
+
+    # 注册后的一次性 Key：只在这一次请求里展示，展示完立刻删掉 Cookie。
+    # 数据库只存哈希，不这样做的话用户永远看不到自己的明文 Key。
+    new_key = request.cookies.get(NEW_KEY_COOKIE, "")
+
     ctx.update(
         quota=user.quota_limit(settings.ai_daily_quota),
         providers=list(PROVIDER_DISPLAY_NAMES),
@@ -391,8 +402,14 @@ async def settings_page(
         default_crawl_cron_desc=describe_cron(settings.crawl_cron),
         default_link_cron=settings.link_page_cron,
         default_link_cron_desc=describe_cron(settings.link_page_cron),
+        allow_registration=settings.allow_registration,
+        api_key_display=new_key,
+        api_key_is_new=bool(new_key),
     )
-    return render(request, "settings.html", ctx)
+    response = render(request, "settings.html", ctx)
+    if new_key:
+        response.delete_cookie(NEW_KEY_COOKIE, path="/web")
+    return response
 
 
 @router.get("/link-pages", include_in_schema=False)
@@ -417,6 +434,59 @@ async def link_pages_page(
     return render(request, "link_pages.html", ctx)
 
 
+# ---- 平台管理 ----
+
+
+@router.get("/admin/users", include_in_schema=False)
+async def admin_users_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_admin)],
+    search: str | None = None,
+    status_filter: str = Query(
+        default="all", alias="status", pattern="^(all|active|disabled)$"
+    ),
+    role: str = Query(default="all", pattern="^(all|admin|user)$"),
+    page: int = Query(default=1, ge=1),
+) -> Response:
+    """平台用户管理。仅管理员可见。
+
+    查询本体复用 ``app.api.admin_users.query_users``——
+    页面和 JSON 接口必须用同一套筛选逻辑，否则「搜出来的」
+    和「翻页后的」会对不上。
+    """
+    from app.api.admin_users import platform_overview, query_users
+
+    page_size = 25
+    result = await query_users(
+        db,
+        search=search,
+        status_filter=status_filter,
+        role=role,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+    overview = await platform_overview(user, db)
+
+    ctx = await _page_context(
+        request, user, await nav_counts(db), "admin-users"
+    )
+    ctx.update(
+        overview=overview,
+        users=result.items,
+        total=result.total,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, (result.total + page_size - 1) // page_size),
+        search=search or "",
+        status_filter=status_filter,
+        role=role,
+        # 前端据此判断「这一行是不是自己」，自己的停用/降权按钮要禁用
+        me_id=user.id,
+    )
+    return render(request, "admin_users.html", ctx)
+
+
 # ---- 认证页面 ----
 
 
@@ -426,16 +496,31 @@ async def login_page(
     db: DbSessionDep,
     next: str = "/web",
 ) -> Response:
+    from app.core.config import get_settings
+
     return render(
         request,
         "auth.html",
-        {"mode": "login", "next": next},
+        {
+            "mode": "login",
+            "next": next,
+            "allow_registration": get_settings().allow_registration,
+        },
     )
 
 
 @router.get("/register", include_in_schema=False)
 async def register_page(request: Request, db: DbSessionDep) -> Response:
-    return render(request, "auth.html", {"mode": "register"})
+    from app.core.config import get_settings
+
+    return render(
+        request,
+        "auth.html",
+        {
+            "mode": "register",
+            "allow_registration": get_settings().allow_registration,
+        },
+    )
 
 
 @router.post("/login", include_in_schema=False)
@@ -474,6 +559,7 @@ async def login_submit(
     from datetime import datetime
 
     user.last_login_at = datetime.now()
+    user.last_login_ip = client_ip(request)
     await db.commit()
 
     resp = RedirectResponse("/web", status_code=status.HTTP_303_SEE_OTHER)
@@ -491,7 +577,24 @@ async def register_submit(
     password: Annotated[str, Form()],
     email: Annotated[str, Form()] = "",
 ) -> Response:
+    from app.core.config import get_settings
+    from app.core.session import NEW_KEY_COOKIE, NEW_KEY_COOKIE_MAX_AGE
+
+    settings = get_settings()
     username = username.strip()
+
+    if not settings.allow_registration:
+        return render(
+            request,
+            "auth.html",
+            {
+                "mode": "register",
+                "allow_registration": False,
+                "error": "平台暂不开放自助注册，请联系管理员开通账号",
+                "form_data": {"username": username, "email": email},
+            },
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
 
     error = None
     try:
@@ -514,11 +617,15 @@ async def register_submit(
             "auth.html",
             {
                 "mode": "register",
+                "allow_registration": True,
                 "error": error,
                 "form_data": {"username": username, "email": email},
             },
             status_code=status.HTTP_400_BAD_REQUEST,
         )
+
+    # 第一个账号自动成为管理员，否则全新部署没有人能进管理页
+    user_count = (await db.execute(select(func.count(User.id)))).scalar_one()
 
     api_key = generate_api_key()
     user = User(
@@ -526,15 +633,31 @@ async def register_submit(
         password_hash=hash_password(password),
         email=email.strip() or None,
         api_key_hash=hash_api_key(api_key),
+        is_admin=int(user_count) == 0,
+        last_login_ip=client_ip(request),
     )
     db.add(user)
     await db.commit()
 
-    resp = RedirectResponse("/web", status_code=status.HTTP_303_SEE_OTHER)
+    # 跳设置页而不是概览页：API Key 只在注册这一刻能拿到，
+    # 直接跳概览会让新用户永远看不到自己的 Key，只能去点「重新生成」。
+    resp = RedirectResponse("/web/settings", status_code=status.HTTP_303_SEE_OTHER)
     resp.set_cookie(
         SESSION_COOKIE, write_session(user.id), **session_cookie_kwargs()
     )
+    resp.set_cookie(
+        NEW_KEY_COOKIE,
+        api_key,
+        max_age=NEW_KEY_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=settings.base_url.startswith("https://"),
+        path="/web",
+    )
     return resp
+
+
+
 
 
 @router.post("/logout", include_in_schema=False)

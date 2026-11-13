@@ -24,6 +24,11 @@
         ('/web/failed', '抓取失败', current_page == 'failed'),
         ('/web/settings', '设置', current_page == 'settings'),
       ] %}
+      {# 管理员入口只对管理员显示。但「不显示」不是安全措施——
+         页面路由自己还有 require_page_admin 兜底。 #}
+      {% if current_user and current_user.is_admin %}
+        {% set links = links + [('/web/admin/users', '用户管理', current_page == 'admin-users')] %}
+      {% endif %}
       {% for href, label, active in links %}
       <a href="{{ href }}"
          {% if active %}style="background:var(--ds-brand);color:#fff"{% endif %}

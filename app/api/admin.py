@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUserSession, DbSession
+from app.api.deps import AdminUser, CurrentUserSession, DbSession
 from app.models import CrawlLog, Post, Site
 
 router = APIRouter(prefix="/api/admin", tags=["后台管理"])
@@ -318,8 +318,15 @@ async def compute_user_stats(db) -> dict:
 
 
 @router.get("/platform-stats", summary="全站统计（管理员）")
-async def platform_stats(user: CurrentUserSession) -> dict:
-    """全站概况。从 Redis 快照读，读不到则实时计算。"""
+async def platform_stats(user: AdminUser) -> dict:
+    """全站概况。从 Redis 快照读，读不到则实时计算。
+
+    ⚠️ 必须是 ``AdminUser`` 而不是 ``CurrentUserSession``：
+    这份快照是**跨租户**的聚合数据（全站友链数、全站文章数）。
+    只要登录就能看的话，任何普通用户都能从统计数字反推平台规模，
+    更重要的是这个接口一旦被当成「我的统计」用，就会掩盖真正的
+    租户隔离问题——两个数字长得一样，没人会发现查错了范围。
+    """
     from app.services.stats_cache import load_snapshot
 
     snapshot = await load_snapshot()

@@ -20,6 +20,15 @@ MAX_AGE = 7 * 24 * 3600
 # 放在核心模块里避免认证层与路由层互相导入。
 SESSION_COOKIE = "ducircle_session"
 
+# 注册成功后用来把「只显示一次的 API Key」带到设置页的一次性 Cookie。
+#
+# 为什么不用 URL 参数 ``?key=fc_xxx``：URL 会进 Nginx 的 access.log、
+# 浏览器历史、以及任何 ``Referer`` 头——一个只该给用户看一次的密钥
+# 就这么散到三四处的日志里了。
+# 用短时效 httponly Cookie 传，设置页读完立刻删掉。
+NEW_KEY_COOKIE = "ducircle_new_key"
+NEW_KEY_COOKIE_MAX_AGE = 120
+
 _serializer: URLSafeTimedSerializer | None = None
 
 

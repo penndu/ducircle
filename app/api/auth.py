@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUserSession, DbSession, validate_registration
+from app.api.deps import (
+    CurrentUserSession,
+    DbSession,
+    client_ip,
+    validate_registration,
+)
 from app.core.security import (
     generate_api_key,
     hash_api_key,
@@ -60,13 +65,27 @@ class KeyResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="注册账号",
 )
-async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
+async def register(
+    payload: RegisterRequest, request: Request, db: DbSession
+) -> RegisterResponse:
     """注册新账号。
 
     开放注册意味着可能被批量注册刷号，因此：
     - 用户名唯一索引挡重复
     - 资源创建走限流中间件（见 app/api/ratelimit_middleware.py）
+    - 平台可通过 ``ALLOW_REGISTRATION=false`` 整体关闭自助注册
+
+    **第一个注册的账号自动成为管理员**——不这样的话，
+    全新部署会把所有人都挡在管理页外面，只能进数据库手改 ``is_admin``。
     """
+    from app.core.config import get_settings
+
+    if not get_settings().allow_registration:
+        raise HTTPException(
+            status_code=403,
+            detail="平台暂不开放自助注册，请联系管理员开通账号",
+        )
+
     validate_registration(payload.username, payload.password)
 
     existing = (
@@ -77,12 +96,20 @@ async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
     if existing is not None:
         raise HTTPException(status_code=409, detail="用户名已被占用")
 
+    # 库里一个账号都没有 → 这是平台的第一位用户，给他管理员权限。
+    # 并发注册时极端情况下可能有两个账号都读到 0，但管理员多一个
+    # 不会造成安全问题（少一个才会——那时没人能进管理页）。
+    user_count = (await db.execute(select(func.count(User.id)))).scalar_one()
+    is_first_user = int(user_count) == 0
+
     api_key = generate_api_key()
     user = User(
         username=payload.username,
         password_hash=hash_password(payload.password),
         email=payload.email,
         api_key_hash=hash_api_key(api_key),
+        is_admin=is_first_user,
+        last_login_ip=client_ip(request),
     )
     db.add(user)
     await db.flush()
@@ -101,7 +128,9 @@ async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
 
 
 @router.post("/login", summary="登录")
-async def login(payload: LoginRequest, response: Response, db: DbSession) -> dict:
+async def login(
+    payload: LoginRequest, request: Request, response: Response, db: DbSession
+) -> dict:
     user = (
         await db.execute(
             select(User).where(func.lower(User.username) == payload.username.lower())
@@ -116,11 +145,14 @@ async def login(payload: LoginRequest, response: Response, db: DbSession) -> dic
         raise HTTPException(status_code=403, detail="账号已被禁用")
 
     user.last_login_at = datetime.now()
+    # 记来源 IP：批量注册/撞库的典型特征是同一 IP 登录几十个账号，
+    # 管理页靠这一列定位异常账号。
+    user.last_login_ip = client_ip(request)
     token = write_session(user.id)
     response.set_cookie(
         SESSION_COOKIE, token, **session_cookie_kwargs()
     )
-    return {"ok": True, "username": user.username}
+    return {"ok": True, "username": user.username, "is_admin": user.is_admin}
 
 
 @router.post("/logout", summary="退出登录")

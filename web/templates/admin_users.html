@@ -1,0 +1,300 @@
+{% extends "layout.html" %}
+
+{% block title %}用户管理 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-xl font-medium">用户管理</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      平台上的所有账号。可以禁用违规账号、调整额度、重置密码。
+    </p>
+  </div>
+  <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 shrink-0">仅管理员可见</span>
+</div>
+
+{# ---- 统计卡片 ---- #}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+  {% for label, value, hint in [
+      ('用户总数', overview.users_total, '活跃 ' ~ overview.users_active ~ ' · 今日新增 ' ~ overview.users_new_today),
+      ('管理员', overview.users_admin, '拥有平台管理权限'),
+      ('友链总数', overview.sites_total, '暂停采集 ' ~ overview.sites_paused),
+      ('文章总数', overview.posts_total, '已生成摘要 ' ~ overview.posts_summarized),
+  ] %}
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-500">{{ label }}</p>
+    <p class="text-2xl font-medium mt-1">{{ value }}</p>
+    <p class="text-xs text-gray-400 mt-1 truncate">{{ hint }}</p>
+  </div>
+  {% endfor %}
+</div>
+
+{# ---- 筛选 ---- #}
+<form method="get" action="/web/admin/users"
+      class="bg-white rounded-lg border border-gray-200 p-3 mb-4 flex flex-wrap items-center gap-2">
+  <input type="search" name="search" value="{{ search }}"
+         placeholder="搜索用户名或邮箱"
+         class="flex-1 min-w-[12rem] px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+  <select name="status" class="px-3 py-2 rounded border border-gray-300 text-sm bg-white">
+    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部状态</option>
+    <option value="active" {% if status_filter == 'active' %}selected{% endif %}>正常</option>
+    <option value="disabled" {% if status_filter == 'disabled' %}selected{% endif %}>已禁用</option>
+  </select>
+  <select name="role" class="px-3 py-2 rounded border border-gray-300 text-sm bg-white">
+    <option value="all" {% if role == 'all' %}selected{% endif %}>全部角色</option>
+    <option value="admin" {% if role == 'admin' %}selected{% endif %}>管理员</option>
+    <option value="user" {% if role == 'user' %}selected{% endif %}>普通用户</option>
+  </select>
+  <button type="submit"
+          class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">筛选</button>
+  {% if search or status_filter != 'all' or role != 'all' %}
+  <a href="/web/admin/users" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">清除</a>
+  {% endif %}
+</form>
+
+{# ---- 用户表格 ---- #}
+{% if users %}
+<div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+  <div class="table-scroll">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-gray-500 text-xs">
+        <tr>
+          <th class="text-left font-medium px-4 py-2.5 whitespace-nowrap">账号</th>
+          <th class="text-left font-medium px-3 py-2.5 whitespace-nowrap">角色</th>
+          <th class="text-left font-medium px-3 py-2.5 whitespace-nowrap">状态</th>
+          <th class="text-right font-medium px-3 py-2.5 whitespace-nowrap">友链 / 文章</th>
+          <th class="text-left font-medium px-3 py-2.5 whitespace-nowrap">最后登录</th>
+          <th class="text-left font-medium px-3 py-2.5 whitespace-nowrap">注册</th>
+          <th class="text-right font-medium px-4 py-2.5 whitespace-nowrap">操作</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for u in users %}
+        <tr class="{% if not u.is_active %}bg-gray-50/60{% endif %}">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-gray-900">{{ u.username }}</span>
+              {% if u.id == me_id %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">我</span>
+              {% endif %}
+            </div>
+            {% if u.email %}
+            <p class="text-xs text-gray-400 truncate max-w-[16rem]">{{ u.email }}</p>
+            {% endif %}
+            {% if u.admin_note %}
+            <p class="text-xs text-amber-700 mt-0.5 truncate max-w-[16rem]" title="{{ u.admin_note }}">
+              备注：{{ u.admin_note }}
+            </p>
+            {% endif %}
+          </td>
+
+          <td class="px-3 py-3">
+            {% if u.is_admin %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">管理员</span>
+            {% else %}
+            <span class="text-xs text-gray-400">普通用户</span>
+            {% endif %}
+          </td>
+
+          <td class="px-3 py-3">
+            {% if u.is_active %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700">正常</span>
+            {% else %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700">已禁用</span>
+            {% endif %}
+          </td>
+
+          <td class="px-3 py-3 text-right whitespace-nowrap">
+            <span class="text-gray-900">{{ u.site_count }}</span>
+            <span class="text-gray-300">/</span>
+            <span class="text-gray-900">{{ u.post_count }}</span>
+            {% if u.post_count %}
+            <p class="text-xs text-gray-400">摘要 {{ u.summarized_count }}</p>
+            {% endif %}
+          </td>
+
+          <td class="px-3 py-3 whitespace-nowrap">
+            <span class="text-gray-700">{{ u.last_login_at | ago }}</span>
+            {% if u.last_login_ip %}
+            <p class="text-xs text-gray-400 font-mono">{{ u.last_login_ip }}</p>
+            {% endif %}
+          </td>
+
+          <td class="px-3 py-3 text-gray-500 whitespace-nowrap">{{ u.created_at | date }}</td>
+
+          <td class="px-4 py-3 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-1">
+              {% if u.id != me_id %}
+                {% if u.is_active %}
+                <button onclick="setActive({{ u.id }}, '{{ u.username }}', false)"
+                        class="px-2 py-1 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">禁用</button>
+                {% else %}
+                <button onclick="setActive({{ u.id }}, '{{ u.username }}', true)"
+                        class="px-2 py-1 rounded border border-green-200 text-xs text-green-700 hover:bg-green-50">启用</button>
+                {% endif %}
+
+                {% if u.is_admin %}
+                <button onclick="setAdmin({{ u.id }}, '{{ u.username }}', false)"
+                        class="px-2 py-1 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">撤销管理员</button>
+                {% else %}
+                <button onclick="setAdmin({{ u.id }}, '{{ u.username }}', true)"
+                        class="px-2 py-1 rounded border border-indigo-200 text-xs text-indigo-700 hover:bg-indigo-50">设为管理员</button>
+                {% endif %}
+              {% endif %}
+
+              <button onclick="openReset({{ u.id }}, '{{ u.username }}')"
+                      class="px-2 py-1 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50">改密码</button>
+
+              {% if u.id != me_id %}
+              <button onclick="removeUser({{ u.id }}, '{{ u.username }}', {{ u.post_count }})"
+                      class="px-2 py-1 rounded border border-red-200 text-xs text-red-600 hover:bg-red-50">删除</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ---- 分页 ---- #}
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between mt-4 text-sm text-gray-500">
+  <span>共 {{ total }} 个账号，第 {{ page }} / {{ total_pages }} 页</span>
+  <div class="flex gap-2">
+    {% if page > 1 %}
+    <a href="/web/admin/users?page={{ page - 1 }}&search={{ search | urlencode }}&status={{ status_filter }}&role={{ role }}"
+       class="px-3 py-1.5 rounded border border-gray-200 bg-white hover:bg-gray-50">上一页</a>
+    {% endif %}
+    {% if page < total_pages %}
+    <a href="/web/admin/users?page={{ page + 1 }}&search={{ search | urlencode }}&status={{ status_filter }}&role={{ role }}"
+       class="px-3 py-1.5 rounded border border-gray-200 bg-white hover:bg-gray-50">下一页</a>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="mt-4 text-sm text-gray-400">共 {{ total }} 个账号</p>
+{% endif %}
+
+{% else %}
+<div class="bg-white rounded-lg border border-gray-200 p-8 text-center">
+  <p class="text-gray-900 font-medium mb-1">没有匹配的账号</p>
+  <p class="text-sm text-gray-500">换个关键词，或者清除筛选条件再看看。</p>
+</div>
+{% endif %}
+
+{# ---- 重置密码弹窗 ---- #}
+<div id="reset-modal" class="hidden fixed inset-0 z-40 bg-gray-900/40 p-4 grid place-items-center">
+  <div class="w-full max-w-sm bg-white rounded-lg border border-gray-200 p-5">
+    <h2 class="font-medium mb-1">重置密码</h2>
+    <p class="text-xs text-gray-500 mb-4 leading-relaxed">
+      给 <span id="reset-username" class="font-medium text-gray-900"></span> 设置一个新密码。
+      该用户在所有设备上的登录状态会立即失效。
+    </p>
+    <form onsubmit="return submitReset(event)" class="space-y-2">
+      <input type="password" id="reset-password" required minlength="8"
+             autocomplete="new-password" placeholder="新密码（至少 8 位）"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+      <input type="password" id="reset-confirm" required minlength="8"
+             autocomplete="new-password" placeholder="再输入一次"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+      <div class="flex gap-2 pt-1">
+        <button type="submit" id="reset-submit"
+                class="flex-1 px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-50">
+          确认重置
+        </button>
+        <button type="button" onclick="closeReset()"
+                class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+let resetUserId = null;
+
+async function patchUser(id, body, okMessage) {
+  try {
+    await api(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    showToast(okMessage);
+    setTimeout(() => location.reload(), 600);
+    return true;
+  } catch (e) {
+    showToast(e.message, false);
+    return false;
+  }
+}
+
+function setActive(id, name, active) {
+  const tip = active
+    ? `启用 ${name}？该账号将可以重新登录。`
+    : `禁用 ${name}？该账号将立即无法登录，已登录的会话也会失效。`;
+  if (!confirm(tip)) return;
+  patchUser(id, { is_active: active }, active ? '已启用' : '已禁用');
+}
+
+function setAdmin(id, name, isAdmin) {
+  const tip = isAdmin
+    ? `把 ${name} 设为管理员？他将能看到并管理平台上所有账号。`
+    : `撤销 ${name} 的管理员权限？`;
+  if (!confirm(tip)) return;
+  patchUser(id, { is_admin: isAdmin }, isAdmin ? '已设为管理员' : '已撤销管理员');
+}
+
+function openReset(id, name) {
+  resetUserId = id;
+  document.getElementById('reset-username').textContent = name;
+  document.getElementById('reset-password').value = '';
+  document.getElementById('reset-confirm').value = '';
+  document.getElementById('reset-modal').classList.remove('hidden');
+  document.getElementById('reset-password').focus();
+}
+
+function closeReset() {
+  resetUserId = null;
+  document.getElementById('reset-modal').classList.add('hidden');
+}
+
+async function submitReset(ev) {
+  ev.preventDefault();
+  const pw = document.getElementById('reset-password').value;
+  const confirmPw = document.getElementById('reset-confirm').value;
+  if (pw !== confirmPw) { showToast('两次输入的密码不一致', false); return false; }
+
+  const btn = document.getElementById('reset-submit');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    const d = await api(`/api/admin/users/${resetUserId}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ new_password: pw }),
+    });
+    closeReset();
+    showToast(d.message || '密码已重置');
+  } catch (e) {
+    showToast(e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '确认重置';
+  }
+  return false;
+}
+
+async function removeUser(id, name, postCount) {
+  const extra = postCount ? `（连带 ${postCount} 篇文章）` : '';
+  if (!confirm(`删除 ${name}${extra}？\n\n这是物理删除，不可恢复。`)) return;
+  if (!confirm(`再确认一次：${name} 及其全部数据将被永久删除。`)) return;
+  try {
+    const d = await api(`/api/admin/users/${id}?confirm=true`, { method: 'DELETE' });
+    showToast(`已删除 ${d.deleted_user}`);
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast(e.message, false);
+  }
+}
+{% endblock %}

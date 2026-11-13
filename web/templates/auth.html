@@ -39,11 +39,22 @@
            class="flex-1 py-2 text-center text-sm rounded-md transition {% if mode != 'register' %}bg-white shadow-sm font-medium{% else %}text-gray-500{% endif %}">
           登录
         </a>
+        {% if allow_registration|default(true) %}
         <a href="/web/register"
            class="flex-1 py-2 text-center text-sm rounded-md transition {% if mode == 'register' %}bg-white shadow-sm font-medium{% else %}text-gray-500{% endif %}">
           注册
         </a>
+        {% else %}
+        <span class="flex-1 py-2 text-center text-sm text-gray-400 cursor-not-allowed"
+              title="平台暂不开放自助注册">注册（暂未开放）</span>
+        {% endif %}
       </div>
+
+      {% if not allow_registration|default(true) %}
+      <div class="mb-5 px-4 py-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-sm leading-relaxed">
+        平台暂不开放自助注册。需要一个账号的话，请联系站点管理员开通。
+      </div>
+      {% endif %}
 
       {% if error %}
       <div class="mb-5 px-4 py-3 rounded bg-red-50 text-red-700 text-sm">{{ error }}</div>

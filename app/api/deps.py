@@ -134,6 +134,22 @@ def validate_registration(username: str, password: str) -> None:
         raise HTTPException(status_code=400, detail="密码过长")
 
 
+def client_ip(request: Request) -> str | None:
+    """真实客户端 IP。
+
+    生产环境前面是 Nginx，``request.client.host`` 永远是 127.0.0.1，
+    必须优先读 ``X-Forwarded-For`` 的第一段（代理链最左端才是真实来源）。
+
+    截断到 64 字符：请求头是攻击者可控的，不截断可能撑爆列宽。
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64] or None
+    if request.client is not None:
+        return request.client.host[:64] or None
+    return None
+
+
 # 常用依赖别名，让路由签名简洁
 CurrentUserSession = Annotated[User, Depends(get_current_user_session)]
 CurrentUserKey = Annotated[User, Depends(get_current_user_key)]
