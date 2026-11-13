@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_api_key, valid_username, verify_api_key
-from app.core.session import SESSION_COOKIE, read_session
+from app.core.session import SESSION_COOKIE, read_session_data
 from app.core.tenant import set_tenant
 from app.db import get_db
 from app.models import User
@@ -34,11 +34,12 @@ async def get_current_user_session(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录"
         )
 
-    user_id = read_session(token)
-    if user_id is None:
+    data = read_session_data(token)
+    if data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已过期"
         )
+    user_id = data["uid"]
 
     user = (
         await session.execute(select(User).where(User.id == user_id))
@@ -47,6 +48,22 @@ async def get_current_user_session(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不可用"
         )
+
+    # 改过密码后，旧会话一律作废。
+    # Session 是无状态签名，没法主动踢人下线——
+    # 只能靠「签发时间早于改密时间」这个判断把旧 Cookie 挡在门外。
+    #
+    # ⚠️ 用 `<=` 而不是 `<`：改密接口换发的新会话签发于同一秒，
+    # 用 `<` 会把新会话也判成旧的、当场失效。
+    # 所以规则是：签发时间必须**严格大于**改密时刻才算有效。
+    changed_at = user.password_changed_at
+    if changed_at is not None:
+        issued_at = data.get("iat")
+        if isinstance(issued_at, int) and issued_at <= changed_at:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="密码已修改，请重新登录",
+            )
 
     set_tenant(user.id)
     return user

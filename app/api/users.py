@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Body, HTTPException, Query, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.api.deps import CurrentUserSession, DbSession
 from app.core.security import generate_api_key, hash_api_key
+from app.core.session import SESSION_COOKIE
 from app.models import CrawlLog, Post, Site, SiteRule
 
 router = APIRouter(prefix="/api/users", tags=["用户设置"])
+
+
+class PasswordChange(BaseModel):
+    old_password: str = Field(min_length=1, max_length=128)
+    # 长度下限跟注册保持一致（8~128）
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UserSettingsUpdate(BaseModel):
@@ -78,6 +86,54 @@ async def update_settings(
         "crawl_cron": user.crawl_cron,
         "link_page_cron": user.link_page_cron,
     }
+
+
+@router.post("/me/password", summary="修改密码")
+async def change_password(
+    payload: PasswordChange,
+    user: CurrentUserSession,
+    db: DbSession,
+    response: Response,
+) -> dict:
+    """修改登录密码。
+
+    **必须验证原密码**——只凭已登录就能改密的话，
+    别人拿到你的 Cookie（比如 XSS 拿到）就能永久夺走账号。
+
+    改密后：
+    - 所有旧会话立即失效（靠 password_changed_at 与签发时间比较）
+    - 当前会话换发新的 Cookie，不受影响
+    """
+    from app.core.security import hash_password, verify_password
+
+    # 原密码不对 → 明确说「原密码错误」，不泄露任何其它信息
+    if not verify_password(payload.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="原密码不正确")
+
+    # 新旧密码相同没意义，但也不拦——用户可能就是想「确认」一下
+    if payload.old_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
+
+    user.password_hash = hash_password(payload.new_password)
+    # 记下改密时刻（Unix 时间戳）：所有在它之前签发的会话都作废
+    changed_at = int(time.time())
+    user.password_changed_at = changed_at
+
+    await db.flush()
+    await db.commit()
+
+    # 换发新会话：当前浏览器继续可用，但用的是改密之后签发的。
+    # 签发时间必须**严格大于**改密时刻——校验逻辑要求 issued_at > changed_at，
+    # 同一秒签发的新会话会被当成旧会话挡掉。
+    from app.core.session import session_cookie_kwargs, write_session
+
+    response.set_cookie(
+        SESSION_COOKIE,
+        write_session(user.id, issued_at=changed_at + 1),
+        **session_cookie_kwargs(),
+    )
+
+    return {"ok": True, "message": "密码已修改，其它设备的登录状态已失效"}
 
 
 @router.delete("/me/data", summary="清空我的全部数据")

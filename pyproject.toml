@@ -1,6 +1,6 @@
 [project]
 name = "ducircle"
-version = "1.0.1"
+version = "1.1.0"
 description = "友链朋友圈 — 面向博客主的公开友链聚合服务"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -33,13 +33,32 @@ def _get_serializer() -> URLSafeTimedSerializer:
     return _serializer
 
 
-def write_session(user_id: int) -> str:
-    """签发 Session token，内含用户 ID 与签发时间。"""
-    return _get_serializer().dumps({"uid": user_id, "iat": int(time.time())})
+def write_session(user_id: int, issued_at: int | None = None) -> str:
+    """签发 Session token，内含用户 ID 与签发时间。
+
+    issued_at 可以指定签发时刻——改密码后要换发新会话时，
+    用它保证新会话的签发时间**严格晚于**改密时刻，
+    否则会被「旧会话作废」的检查当成旧会话挡掉。
+    """
+    return _get_serializer().dumps(
+        {"uid": user_id, "iat": issued_at if issued_at is not None else int(time.time())}
+    )
 
 
 def read_session(token: str) -> int | None:
     """校验并解析 Session token。无效或过期返回 None。"""
+    data = read_session_data(token)
+    if data is None:
+        return None
+    return data.get("uid")
+
+
+def read_session_data(token: str) -> dict | None:
+    """解析 Session token，返回完整内容（含签发时间）。
+
+    改密码后要作废旧会话，光有 uid 不够——还需要签发时间
+    才能和 password_changed_at 比较。
+    """
     try:
         data = _get_serializer().loads(token, max_age=MAX_AGE)
     except (BadSignature, SignatureExpired):
@@ -47,8 +66,21 @@ def read_session(token: str) -> int | None:
     except Exception:  # noqa: BLE001
         return None
 
-    uid = data.get("uid") if isinstance(data, dict) else None
-    return uid if isinstance(uid, int) else None
+    if not isinstance(data, dict):
+        return None
+    uid = data.get("uid")
+    if not isinstance(uid, int):
+        return None
+    return data
+
+
+def session_issued_at(token: str) -> int | None:
+    """取会话的签发时间（Unix 秒）。解析失败返回 None。"""
+    data = read_session_data(token)
+    if data is None:
+        return None
+    iat = data.get("iat")
+    return iat if isinstance(iat, int) else None
 
 
 def session_cookie_kwargs() -> dict:

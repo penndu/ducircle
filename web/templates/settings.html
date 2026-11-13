@@ -189,6 +189,29 @@
       <dd class="text-gray-900">{{ current_user.created_at | date }}</dd>
     </div>
   </dl>
+
+  {# ---- 修改密码 ---- #}
+  <div class="mt-5 pt-5 border-t border-gray-200">
+    <h3 class="font-medium text-sm mb-1">修改密码</h3>
+    <p class="text-xs text-gray-400 mb-3">
+      修改后其它设备上的登录状态会立即失效，当前设备不受影响。
+    </p>
+    <form id="pw-form" class="space-y-2" onsubmit="return changePassword(event)">
+      <input type="password" id="pw-old" autocomplete="current-password"
+             placeholder="原密码" required
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+      <input type="password" id="pw-new" autocomplete="new-password"
+             placeholder="新密码（至少 8 位）" required minlength="8"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+      <input type="password" id="pw-confirm" autocomplete="new-password"
+             placeholder="再输入一次新密码" required minlength="8"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400">
+      <button type="submit" id="pw-btn"
+              class="px-3 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-50">
+        修改密码
+      </button>
+    </form>
+  </div>
 </div>
 </div>
 {% endblock %}
@@ -209,6 +232,37 @@ async function regen() {
     document.getElementById('key-box').value = d.api_key;
     showToast('已生成新 Key');
   } catch (e) { showToast(e.message, false); }
+}
+
+async function changePassword(ev) {
+  ev.preventDefault();
+  const oldPw = document.getElementById('pw-old').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirmPw = document.getElementById('pw-confirm').value;
+
+  // 前端先挡一道：两次输入不一致就别发请求了
+  if (newPw !== confirmPw) { showToast('两次输入的新密码不一致', false); return false; }
+  if (newPw.length < 8) { showToast('新密码至少 8 位', false); return false; }
+
+  const btn = document.getElementById('pw-btn');
+  btn.disabled = true;
+  btn.textContent = '提交中…';
+  try {
+    const d = await api('/api/users/me/password', {
+      method: 'POST',
+      body: JSON.stringify({old_password: oldPw, new_password: newPw}),
+    });
+    // 清空表单，别让密码留在 DOM 里
+    document.getElementById('pw-form').reset();
+    showToast(d.message || '密码已修改');
+    return false;
+  } catch (e) {
+    showToast(e.message, false);
+    return false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '修改密码';
+  }
 }
 
 let aiTimer;

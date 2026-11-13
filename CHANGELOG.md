@@ -5,6 +5,24 @@
 
 ---
 
+## [1.1.0] - 2026-11-13
+
+### 新增
+
+- **设置页可修改密码** —— 账号区新增改密表单（原密码 + 新密码 + 确认）。
+  - **必须验证原密码**：只凭已登录就能改密的话，
+    别人拿到你的 Cookie（比如 XSS 拿到）就能永久夺走账号。
+  - 新密码长度要求与注册一致（8~128 位）。
+  - 改密后**其它设备的登录状态立即失效**，当前设备不受影响
+    （响应里换发新 Cookie）。
+
+### 内部
+
+- Session 支持指定签发时间，改密后凭签发时间作废旧会话。
+- 新增 `users.password_changed_at`（Unix 时间戳）。
+
+---
+
 ## [1.0.1] - 2026-11-13
 
 ### 修复
@@ -80,5 +98,6 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[1.1.0]: https://github.com/penndu/ducircle/releases/tag/v1.1.0
 [1.0.1]: https://github.com/penndu/ducircle/releases/tag/v1.0.1
 [1.0.0]: https://github.com/penndu/ducircle/releases/tag/v1.0.0

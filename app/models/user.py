@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -17,6 +25,20 @@ class User(Base, TimestampMixin):
     username: Mapped[str] = mapped_column(String(32), unique=True, nullable=False,
                                           index=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    # 密码最后修改时间（Unix 时间戳，秒）。
+    #
+    # Session 是无状态签名（itsdangerous），本来就无法主动踢人下线。
+    # 有了这个时间戳，改密码后就能让**所有旧会话失效**——
+    # 校验会话时比一下签发时间，早于这个时刻的一律拒绝。
+    # 没有它的话，用户改完密码，旧浏览器上的 Cookie 还能继续用一周。
+    #
+    # 为什么存 Unix 时间戳而不是 DateTime：
+    # DateTime 方案要处理 naive/aware 混用、容器时区与数据库时区不一致、
+    # SQLite 存储精度截断等问题——实测就踩到过「存取后差了 1 秒」的坑，
+    # 导致同一秒签发的旧会话没被作废。整数没有这些问题。
+    password_changed_at: Mapped[int | None] = mapped_column(
+        BigInteger, default=None
+    )
     email: Mapped[str | None] = mapped_column(String(128), default=None)
 
     # 只读接口用的 Key。数据库只存哈希，明文仅在注册成功时返回一次。
