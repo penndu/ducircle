@@ -67,7 +67,14 @@
 .ds-post-title{font-size:13.5px;font-weight:580;color:var(--ds-ink);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}
 .ds-post-title:hover{color:var(--ds-brand);text-decoration:underline}
 .ds-post-meta{font-size:11.5px;color:var(--ds-faint);margin-top:3px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
-.ds-post-sum{font-size:12px;color:var(--ds-muted);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 摘要用两行截断，不用单行省略。
+   单行 nowrap + ellipsis 在窄容器里会撑破容器——概览页宽屏（≥1400px）是
+   双列 grid，每列只有 650~750px，64 个中文字（12px 字号）需要约 770px，
+   放不下就横向溢出、压到相邻内容上。
+   line-clamp 让文字正常换行并限制在两行内，任何宽度都不会出框。 */
+.ds-post-sum{font-size:12px;color:var(--ds-muted);margin-top:5px;line-height:1.65;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;word-break:break-word;overflow-wrap:anywhere}
 .ds-badge{font-size:10.5px;padding:1px 6px;border-radius:5px;background:#f2f5f2;color:var(--ds-muted)}
 .ds-badge.score{background:#fdf3e3;color:#a8741c;font-family:var(--mono)}
 

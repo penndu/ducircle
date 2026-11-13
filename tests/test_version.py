@@ -19,6 +19,18 @@ def _pyproject_version() -> str:
     return data["project"]["version"]
 
 
+def _changelog_version() -> str:
+    """从 CHANGELOG 的最新条目里读版本号。
+
+    比硬编码断言好——每次升版不用改测试，
+    免得「改了代码忘了改测试」变成「忘了改测试导致 CI 红」。
+    """
+    content = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    match = re.search(r"^## \[(\d+\.\d+\.\d+)\]", content, re.M)
+    assert match, "CHANGELOG.md 里没有找到版本条目"
+    return match.group(1)
+
+
 class TestSingleSourceOfTruth:
     def test_pyproject_is_valid_semver(self):
         version = _pyproject_version()
@@ -27,8 +39,17 @@ class TestSingleSourceOfTruth:
         )
 
     def test_version_matches_pyproject(self):
-        """版本号是 1.0.0。"""
-        assert _pyproject_version() == "1.0.0"
+        """pyproject 与 CHANGELOG 的版本号必须一致。
+
+        不硬编码具体版本——升版时只要同步这两处就行，
+        不用回来改测试。
+        """
+        assert _pyproject_version() == _changelog_version()
+
+    def test_changelog_has_current_version_entry(self):
+        assert f"## [{_pyproject_version()}]" in Path("CHANGELOG.md").read_text(
+            encoding="utf-8"
+        )
 
     def test_config_reads_from_pyproject(self):
         """settings.app_version 来自 pyproject，不是硬编码。"""
@@ -81,8 +102,8 @@ class TestChangelog:
         path = Path("CHANGELOG.md")
         assert path.exists()
         content = path.read_text(encoding="utf-8")
-        assert "## [1.0.0]" in content
+        assert f"## [{_pyproject_version()}]" in content
 
     def test_readme_shows_version(self):
         content = Path("README.md").read_text(encoding="utf-8")
-        assert "v1.0.0" in content
+        assert f"v{_pyproject_version()}" in content

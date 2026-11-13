@@ -5,6 +5,17 @@
 
 ---
 
+## [1.0.1] - 2026-11-13
+
+### 修复
+
+- **概览页「最新文章」摘要出框** —— 宽屏（≥1400px）下概览页是双列布局，
+  每列只有 650~750px；摘要用单行省略（`nowrap` + `text-overflow:ellipsis`），
+  64 个中文字（12px 字号）需要约 770px，放不下就横向溢出、压到相邻内容上。
+  改为两行截断（`line-clamp`），文字正常换行，任何视口宽度都不会出框。
+
+---
+
 ## [1.0.0] - 2026-11-13
 
 首个正式版本。线上：<https://ducircle.dusays.com>
@@ -69,4 +80,5 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[1.0.1]: https://github.com/penndu/ducircle/releases/tag/v1.0.1
 [1.0.0]: https://github.com/penndu/ducircle/releases/tag/v1.0.0
