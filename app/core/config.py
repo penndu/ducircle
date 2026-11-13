@@ -1,9 +1,39 @@
 """应用配置。所有可调参数集中在此，通过环境变量或 .env 覆盖。"""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _read_version() -> str:
+    """读语义版本号（如 1.0.0）。
+
+    **单一真源**：版本号只写在 pyproject.toml 一处，
+    API 文档、/health 都用它——散落各处迟早会漏改。
+
+    生产镜像里没有 pyproject.toml 时，退回 APP_VERSION 环境变量
+    （CI 用 --build-arg 注入）。
+
+    ⚠️ 别用 DUCIRCLE_VERSION——那是**构建版本**（时间戳 202611121026），
+    不是语义版本，两个混在一起会让人分不清跑的是哪个版本。
+    """
+    import os
+
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    try:
+        for line in pyproject.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version"):
+                _, _, value = stripped.partition("=")
+                version = value.strip().strip('"').strip("'")
+                if version:
+                    return version
+    except OSError:
+        pass
+
+    return os.environ.get("APP_VERSION", "").strip() or "0.0.0"
 
 
 class Settings(BaseSettings):
@@ -13,6 +43,7 @@ class Settings(BaseSettings):
 
     # ---- 基础 ----
     app_name: str = "友链朋友圈"
+    app_version: str = Field(default_factory=_read_version)
     debug: bool = False
     secret_key: str = "change-me-in-production"
     base_url: str = "http://localhost:8000"

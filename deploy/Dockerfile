@@ -55,10 +55,16 @@ FROM python:3.12-slim AS runtime
 ARG BUILD_VERSION=dev
 ARG BUILD_TIME=unknown
 
+# APP_VERSION 是**语义版本**（如 1.0.0），从 pyproject.toml 读。
+# 和 BUILD_VERSION（构建时间戳 202611121026）是两回事，别混：
+# 前者说「这是第几版功能」，后者说「这是哪次构建出来的」。
+ARG APP_VERSION=0.0.0
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
     TZ=Asia/Shanghai \
+    APP_VERSION="${APP_VERSION}" \
     DUCIRCLE_VERSION="${BUILD_VERSION}" \
     DUCIRCLE_BUILD_TIME="${BUILD_TIME}"
 

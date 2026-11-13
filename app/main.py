@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     description="面向博客主的公开友链聚合服务",
-    version="0.1.0",
+    version=settings.app_version,
     lifespan=lifespan,
     docs_url="/docs/swagger",
     redoc_url="/redoc",
@@ -119,6 +119,7 @@ async def _health_payload() -> dict:
     return {
         "status": "ok" if db_ok else "degraded",
         "db": "ok" if db_ok else "down",
+        # 语义版本（如 1.0.0）——功能第几版
         "version": app.version,
         # 构建版本，由 CI 通过 --build-arg 注入。
         # 部署后第一件事就是确认跑的是不是预期的那个版本——

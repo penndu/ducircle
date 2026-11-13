@@ -96,7 +96,13 @@ jobs:
         run: |
           TAG=$(TZ=Asia/Shanghai date +%Y%m%d%H%M)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # 语义版本从 pyproject.toml 读，作为 APP_VERSION 注入镜像。
+          # 这样镜像里的 /health 能同时给出「功能版本 1.0.0」
+          # 和「构建版本 202611121026」两个信息。
+          APP_VER=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          echo "app_version=$APP_VER" >> "$GITHUB_OUTPUT"
           echo "构建版本: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "语义版本: $APP_VER" >> "$GITHUB_STEP_SUMMARY"
 
       # 用原生 docker build + push，不用 buildx。
       #
@@ -108,12 +114,14 @@ jobs:
       - name: 构建并推送
         env:
           VERSION_TAG: ${{ steps.ver.outputs.tag }}
+          APP_VERSION: ${{ steps.ver.outputs.app_version }}
         run: |
           set -euo pipefail
 
           echo "==> 构建"
           docker build \
             --build-arg BUILD_VERSION="$VERSION_TAG" \
+            --build-arg APP_VERSION="$APP_VERSION" \
             --build-arg BUILD_TIME="$(TZ=Asia/Shanghai date -Iseconds)" \
             -f deploy/Dockerfile \
             -t ${{ env.IMAGE_NAME }}:latest \
