@@ -418,6 +418,22 @@ class TestRedeem:
         assert "100" in html           # 余额
         assert "体验版" in html        # 兑换记录
         assert "2 元 · 100 次 AI 摘要" in html  # 定价目录
+        # 购买入口：默认配置指向站外收银台，新窗口打开
+        assert "https://pay.dusay.cn" in html
+        assert 'rel="noopener"' in html
+
+    @pytest.mark.asyncio
+    async def test_redeem_page_hides_buy_link_when_unset(self, make_client, monkeypatch):
+        """REDEEM_BUY_URL 留空时不渲染购买按钮，文案也换成「向管理员索取」。"""
+        from app.core.config import get_settings
+
+        user = make_client()
+        await register(user, "bob")
+        monkeypatch.setattr(get_settings(), "redeem_buy_url", "")
+
+        html = (await user.get("/web/redeem")).text
+        assert "去购买兑换码" not in html
+        assert "向管理员索取兑换码" in html
 
     @pytest.mark.asyncio
     async def test_settings_page_has_redeem_box(self, make_client):

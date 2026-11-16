@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     ai_max_chars: int = 8000
     ai_timeout: int = 60
 
+    # ---- 兑换码 ----
+    # 用户自助购买兑换码的收银台地址。放配置而不是写死在模板里：
+    # 换收款渠道时改一行环境变量即可，不用重新构建镜像。
+    # 留空则兑换页不显示购买入口，退化成「管理员发码」模式。
+    redeem_buy_url: str = "https://pay.dusay.cn"
+
     # ---- 调度 ----
     # 定时抓取任务（cron 格式），默认每天 4 次
     crawl_cron: str = "0 0,6,12,18 * * *"

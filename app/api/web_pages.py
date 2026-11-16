@@ -473,6 +473,7 @@ async def redeem_page(
 
     设置页只放一个快捷入口，重活在这里。
     """
+    from app.core.config import get_settings
     from app.services.redeem import my_codes, plan_catalog, price_yuan
 
     codes = await my_codes(db, user.id)
@@ -482,6 +483,9 @@ async def redeem_page(
         plans=plan_catalog(),
         my_codes=codes,
         price_yuan=price_yuan,
+        # 购买入口走配置。留空时模板不渲染按钮——
+        # 有些部署只想让管理员私下发码，不该硬塞一个买不到的链接。
+        buy_url=get_settings().redeem_buy_url,
     )
     return render(request, "redeem.html", ctx)
 

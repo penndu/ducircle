@@ -53,11 +53,14 @@
   <p id="redeem-tip" class="hidden mt-3 text-xs px-3 py-2 rounded bg-green-50 text-green-800 border border-green-200"></p>
 </div>
 
-{# ---- 定价 ---- #}
+{# ---- 定价 ----
+   购买走站外收银台，所以 target="_blank" 且带 rel="noopener"
+   （不给外站通过 window.opener 反向操作本页的机会）。 #}
 <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
   <h2 class="font-medium mb-1">兑换码档位</h2>
   <p class="text-sm text-gray-500 mb-4 leading-relaxed">
-    向管理员购买。同一账号可以兑多张，次数直接累加。
+    {% if buy_url %}在购买页下单后拿到兑换码，回到上面输入即可。{% else %}向管理员索取兑换码，拿到后在上面输入。{% endif %}
+    同一账号可以兑多张，次数直接累加。
   </p>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
     {% for plan in plans %}
@@ -72,6 +75,15 @@
     </div>
     {% endfor %}
   </div>
+  {% if buy_url %}
+  <div class="mt-4 flex flex-wrap items-center gap-3">
+    <a href="{{ buy_url }}" target="_blank" rel="noopener"
+       class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 whitespace-nowrap">
+      去购买兑换码
+    </a>
+    <span class="text-xs text-gray-400">跳转到购买页，付款后拿码回来兑换。</span>
+  </div>
+  {% endif %}
 </div>
 
 {# ---- 怎么用 ---- #}
