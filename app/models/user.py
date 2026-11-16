@@ -85,6 +85,17 @@ class User(Base, TimestampMixin):
         Integer, default=None, comment="为空则用平台默认值"
     )
 
+    # 兑换码换来的平台 AI 摘要余额（次数）。
+    #
+    # 与 ai_daily_quota_override 是两回事：那个是**每天重置**的免费额度，
+    # 这个是**用户付过钱的余额**——可累加、不重置、不过期。
+    # 生成一篇用平台 AI 的摘要扣 1 次，扣到 0 为止。
+    #
+    # 只在「没有自带 Key」时才消耗（自带 Key 走用户自己的账）。
+    ai_summary_credits: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, comment="兑换码换来的剩余摘要次数"
+    )
+
     # 每用户抓取并发上限，NULL 表示用平台默认值
     max_concurrent_override: Mapped[int | None] = mapped_column(Integer, default=None)
 
@@ -116,6 +127,11 @@ class User(Base, TimestampMixin):
     @property
     def has_own_ai_key(self) -> bool:
         return bool(self.ai_api_key)
+
+    @property
+    def has_ai_credit(self) -> bool:
+        """有没有兑换来的剩余次数。没有自带 Key 时靠它才能用平台 AI。"""
+        return (self.ai_summary_credits or 0) > 0
 
     def quota_limit(self, default: int) -> int:
         # 显式判 None：写成 `override or default` 的话，

@@ -46,19 +46,25 @@ DbSessionDep = Annotated[AsyncSession, Depends(get_db)]
 async def _ai_state(user: User, db) -> dict:
     """仪表盘展示用的 AI 状态。"""
     from app.core.config import get_settings
-    from app.services.ai_summary import check_quota
+    from app.services.ai_summary import quota_state
 
     settings = get_settings()
-    allowed, used, limit = await check_quota(user, db)
+    state = await quota_state(user, db)
     return {
         "enabled": settings.ai_enabled and user.ai_enabled,
         "has_own_key": user.has_own_ai_key,
-        "daily_limit": limit,
-        "used": used,
-        "remaining": None if user.has_own_ai_key else max(0, limit - used),
-        # 平台不提供免费额度且用户没填自己的 Key —— 概览页据此引导去设置页
+        # daily_limit / used 是平台的每日免费额度，credits 是兑换来的余额。
+        # 三个数字分开给，用户才看得懂「我的次数是从哪来的」。
+        "daily_limit": state.daily_limit,
+        "used": state.used_today,
+        "remaining": state.remaining,
+        "credits": state.credits,
+        # 既没 Key 也没余额 —— 概览页据此引导「填 Key 或兑换码」
         "key_required": (
-            not user.has_own_ai_key and limit <= 0 and user.ai_enabled
+            not user.has_own_ai_key
+            and state.daily_limit <= 0
+            and state.credits <= 0
+            and user.ai_enabled
         ),
     }
 
@@ -390,6 +396,7 @@ async def settings_page(
     ctx = await _page_context(request, user, await nav_counts(db), "settings")
     from app.core.cron import CRON_PRESETS, describe_cron
     from app.services.llm import PROVIDER_DISPLAY_NAMES
+    from app.services.redeem import plan_catalog
 
     settings = get_settings()
 
@@ -417,6 +424,9 @@ async def settings_page(
         allow_registration=settings.allow_registration,
         api_key_display=new_key or user.api_key_plain or "",
         api_key_is_new=bool(new_key),
+        # 兑换码余额与定价目录：设置页的「AI 摘要」区直接展示与兑换
+        ai_credits=user.ai_summary_credits or 0,
+        redeem_plans=plan_catalog(),
     )
     response = render(request, "settings.html", ctx)
     if new_key:
@@ -444,6 +454,36 @@ async def link_pages_page(
     ctx = await _page_context(request, user, await nav_counts(db), "link-pages")
     ctx.update(link_pages=pages)
     return render(request, "link_pages.html", ctx)
+
+
+# ---- 兑换码（用户侧） ----
+
+
+@router.get("/redeem", include_in_schema=False)
+async def redeem_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_user)],
+) -> Response:
+    """兑换平台 AI 摘要次数。
+
+    单独开一页而不只放在设置页里，是因为这是**用户要花钱**的动作：
+    他可能从概览页的提示、从群里发的链接直接进来，
+    需要一屏说清「还剩几次 / 各档多少钱 / 怎么用」。
+
+    设置页只放一个快捷入口，重活在这里。
+    """
+    from app.services.redeem import my_codes, plan_catalog, price_yuan
+
+    codes = await my_codes(db, user.id)
+    ctx = await _page_context(request, user, await nav_counts(db), "redeem")
+    ctx.update(
+        credits=user.ai_summary_credits or 0,
+        plans=plan_catalog(),
+        my_codes=codes,
+        price_yuan=price_yuan,
+    )
+    return render(request, "redeem.html", ctx)
 
 
 # ---- 平台管理 ----
@@ -497,6 +537,71 @@ async def admin_users_page(
         me_id=user.id,
     )
     return render(request, "admin_users.html", ctx)
+
+
+@router.get("/admin/redeem", include_in_schema=False)
+async def admin_redeem_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_admin)],
+    status_filter: str = Query(
+        default="all", alias="status", pattern="^(all|unused|used|revoked)$"
+    ),
+    plan: str = Query(default="all", pattern="^(all|trial|standard)$"),
+    batch_id: int | None = Query(default=None, ge=1),
+    q: str | None = Query(default=None, max_length=32),
+    page: int = Query(default=1, ge=1),
+) -> Response:
+    """兑换码生成器。仅管理员可见。
+
+    生成逻辑走 ``POST /api/admin/redeem-codes/batches``，
+    页面只负责把批次和码列出来。查询本体复用 ``query_codes`` /
+    ``query_batches``，与 JSON 接口共用同一套筛选逻辑——
+    否则「页面上看到的」和「导出/接口拿到的」会对不上。
+    """
+    from app.api.admin_redeem import query_batches, query_codes
+    from app.services.redeem import plan_catalog, price_yuan
+
+    page_size = 25
+    codes, codes_total, counts = await query_codes(
+        db,
+        status_filter=status_filter,
+        plan=plan,
+        batch_id=batch_id,
+        keyword=q,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+    batches, _ = await query_batches(db, limit=30, offset=0)
+
+    # 翻页链接要带上当前筛选条件，所以直接在 Python 里拼好 query string——
+    # 模板里用 dict | urlencode 会把 batch_id=None 这种也塞进 URL。
+    from urllib.parse import urlencode
+
+    filter_params = {"q": q or "", "status": status_filter, "plan": plan}
+    if batch_id:
+        filter_params["batch_id"] = str(batch_id)
+
+    ctx = await _page_context(
+        request, user, await nav_counts(db), "admin-redeem"
+    )
+    ctx.update(
+        plans=plan_catalog(),
+        price_yuan=price_yuan,
+        batches=batches,
+        codes=codes,
+        counts=counts,
+        codes_total=codes_total,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, (codes_total + page_size - 1) // page_size),
+        status_filter=status_filter,
+        plan=plan,
+        batch_id=batch_id,
+        q=q or "",
+        filter_qs=urlencode(filter_params),
+    )
+    return render(request, "admin_redeem.html", ctx)
 
 
 # ---- 认证页面 ----

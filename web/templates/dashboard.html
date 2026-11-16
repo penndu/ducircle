@@ -372,15 +372,16 @@
         <div class="ds-card-head">
           <h2 class="ds-card-title">AI 摘要</h2>
           {% if ai.has_own_key %}<span class="ds-badge">自有 Key</span>
-          {% elif ai.remaining is not none %}<span class="ds-badge">今日剩 {{ ai.remaining }}</span>{% endif %}
+          {% elif ai.remaining is not none %}<span class="ds-badge">剩 {{ ai.remaining }} 次</span>{% endif %}
         </div>
         {% if not ai.has_own_key and ai.key_required %}
-        {# 平台不提供免费额度：没 Key 就用不了，卡片直接说清楚并给入口 #}
+        {# 平台不提供免费额度、也没兑过码：卡片直接说清两条路并给出入口 #}
         <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
           平台不提供免费摘要额度。填一个你自己的 API Key 就能用，
-          费用由服务商直接向你收取。
+          费用由服务商直接向你收取；或者用兑换码换平台内置 AI 的次数。
         </p>
         <a class="ds-btn ds-btn-primary ds-btn-sm" style="width:100%" href="/web/settings">去填写 API Key</a>
+        <a class="ds-btn ds-btn-ghost ds-btn-sm" style="width:100%;margin-top:8px" href="/web/redeem">用兑换码兑换次数</a>
         {% else %}
         <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
           给文章写句摘要、打个推荐分，先挑值得读的看。
@@ -388,6 +389,10 @@
         <div class="ds-track" style="margin-top:0"><i style="width:{{ summary_rate }}%"></i></div>
         <p style="font-size:11.5px;color:var(--ds-faint);margin:8px 0 14px">
           已完成 {{ stats.posts.summarized }} / {{ stats.posts.total }} 篇
+          {%- if ai.credits and not ai.has_own_key %}
+          <span class="mx-1">·</span>兑换余额 {{ ai.credits }} 次
+          <a href="/web/redeem" style="color:var(--ds-brand)">兑换</a>
+          {%- endif %}
         </p>
         {% if stats.posts.total - stats.posts.summarized > 0 %}
         <button onclick="batchSummary()" id="summary-btn"

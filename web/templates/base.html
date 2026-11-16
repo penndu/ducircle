@@ -5,15 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f6b54'/><text x='50' y='68' text-anchor='middle' font-size='58' fill='white'>友</text></svg>">
-  {# Tailwind 走 CDN：后台页面量小，构建链不值得引入。
-     公开服务上线后建议改成本地构建，避免依赖第三方可用性。 #}
-  <script src="https://cdn.tailwindcss.com"></script>
+  {# Tailwind 走国内可访问的 npmmirror 镜像（v4 浏览器版）。
+     原先用的 cdn.tailwindcss.com 在国内经常连不上——一旦加载失败，
+     整个后台就没有样式。镜像再挂的话回退到 unpkg，两条链路同时挂的概率很低。
+     后台页面量小，仍然不值得为它引入构建链。 #}
+  <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.1.16/files/dist/index.global.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/@tailwindcss/browser@4';document.head.appendChild(s);"></script>
   <style>
     :root{
       --ds-ink:#17201c; --ds-muted:#6d7771; --ds-faint:#98a29c;
       --ds-line:#e4e9e3; --ds-brand:#1f6b54; --ds-brand-dark:#175440;
       --ds-brand-soft:#e9f3ee; --ds-accent:#e6a23c; --ds-danger:#c0483a;
     }
+    /* ---- Tailwind v4 兼容层 ----
+       v4 把「默认边框色」从 gray-200 改成了 currentColor。
+       后台模板里有大量只写 border、不写颜色的地方，不补回来边框会变成深灰。
+       用 body * 而不是 * 是为了压过 v4 preflight 的 `border: 0 solid`——
+       两者同为通配符时后加载的赢，加一层元素选择器就没有顺序问题了。
+       显式的 border-gray-* 是类选择器，优先级更高，不受影响。 */
+    body *, body ::before, body ::after { border-color: var(--ds-line); }
+    /* v4 的 preflight 把按钮光标改成了 default，可点元素得还回小手 */
+    button:not(:disabled), summary, label[for], [role="button"] { cursor: pointer; }
     [x-cloak] { display: none !important; }
     body { -webkit-font-smoothing: antialiased; }
     /* 表格在窄屏可横向滚动，不撑破布局 */

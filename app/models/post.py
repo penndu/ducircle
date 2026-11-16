@@ -140,10 +140,22 @@ class CrawlLog(Base, TimestampMixin):
 
 
 class AIQuotaLog(Base):
-    """AI 额度消耗。按 (用户, 日期) 聚合判断是否超额。"""
+    """AI 额度消耗。按 (用户, 日期) 聚合判断是否超额。
+
+    记的是什么：**这一次生成消耗了哪一桶额度**。
+
+    - ``from_user_key=True``  用自己的 Key，不占平台任何资源
+    - ``from_credit=True``    扣的是兑换码换来的余额（用户付过钱）
+    - 两者都 False            扣的是平台每天送的免费额度
+
+    三桶必须分开记：算「今日免费额度用了几篇」时只能数第三种，
+    把兑换来的次数也算进去，用户花钱买的次数就会莫名其妙吃掉免费额度。
+    """
 
     __tablename__ = "ai_quota_logs"
     __table_args__ = (
+        # 同一篇文章同一天只记一行 —— 重复生成（用户点了「重置摘要」再点一次）
+        # 不该被算成两次用量，写入前会先查一次。
         UniqueConstraint("user_id", "quota_date", "post_id", name="uq_quota_user_date_post"),
         Index("ix_quota_user_date", "user_id", "quota_date"),
     )
@@ -161,6 +173,11 @@ class AIQuotaLog(Base):
     # 用户自带 Key 的调用不计入平台额度
     from_user_key: Mapped[bool] = mapped_column(Boolean, default=False,
                                                  nullable=False)
+    # 扣的是兑换码换来的余额（用户付过钱）。
+    # 与 from_user_key 一起把「扣了哪一桶额度」表达清楚：
+    # 两个都是 False 才是平台的免费日额度。
+    from_credit: Mapped[bool] = mapped_column(Boolean, default=False,
+                                              nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, nullable=False
     )

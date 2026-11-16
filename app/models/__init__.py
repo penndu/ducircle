@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.post import AIQuotaLog, CrawlLog, Post
+from app.models.redeem import RedeemBatch, RedeemCode
 from app.models.site import (
     Blacklist,
     LinkPage,
@@ -28,4 +29,6 @@ __all__ = [
     "Post",
     "CrawlLog",
     "AIQuotaLog",
+    "RedeemBatch",
+    "RedeemCode",
 ]

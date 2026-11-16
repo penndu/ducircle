@@ -62,6 +62,8 @@ class AdminUserOut(BaseModel):
     ai_provider: str | None
     has_own_ai_key: bool
     ai_daily_quota_override: int | None
+    # 兑换码换来的余额（次数）。管理员据此判断「谁买了、还剩多少」。
+    ai_summary_credits: int = 0
     max_concurrent_override: int | None
 
     # 资源占用。管理页用它判断「谁在用、谁只是占了个号」。
@@ -89,6 +91,9 @@ class AdminUserUpdate(BaseModel):
     ai_enabled: bool | None = None
     ai_provider: str | None = Field(default=None, max_length=32)
     ai_daily_quota_override: int | None = Field(default=None, ge=0, le=1000)
+    # 管理员可以直接给账号加/减兑换余额（补发、退款、纠错）。
+    # 上限给得比单张码大得多，因为余额是累加的结果。
+    ai_summary_credits: int | None = Field(default=None, ge=0, le=1_000_000)
     max_concurrent_override: int | None = Field(default=None, ge=1, le=50)
 
 
@@ -168,6 +173,7 @@ def _to_out(user: User, usage: tuple[int, int, int]) -> AdminUserOut:
         ai_provider=user.ai_provider,
         has_own_ai_key=user.has_own_ai_key,
         ai_daily_quota_override=user.ai_daily_quota_override,
+        ai_summary_credits=user.ai_summary_credits or 0,
         max_concurrent_override=user.max_concurrent_override,
         site_count=usage[0],
         post_count=usage[1],

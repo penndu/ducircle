@@ -1,12 +1,12 @@
 # 友链朋友圈 ducircle
 
-[![版本](https://img.shields.io/badge/version-v2.0.1-2563eb)](https://github.com/penndu/ducircle/releases/tag/v2.0.1)
+[![版本](https://img.shields.io/badge/version-v2.1.0-2563eb)](https://github.com/penndu/ducircle/releases/tag/v2.1.0)
 [![许可](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 面向博客主的公开友链聚合服务。自动发现友链的 RSS、
 自动识别博客框架，把好友的更新汇聚成一条时间流。
 
-线上：<https://ducircle.dusays.com> · 当前版本：**v2.0.1**
+线上：<https://ducircle.dusays.com> · 当前版本：**v2.1.0**
 
 ---
 
@@ -224,16 +224,17 @@ docs/             # 需求、架构、部署、抓取验证报告
 |---|---|---|
 | 抓取引擎 | ✅ | 线上 45+ 真实站点，实跑 35 站点 0 失败 |
 | 框架指纹兜底 | ✅ | feed 不可用时仍能正常抓取 |
-| 数据库迁移 | ✅ | 真实 MySQL 8 上执行成功（迁移 0001~0008） |
+| 数据库迁移 | ✅ | 真实 MySQL 8 上执行成功（迁移 0001~0011） |
 | 租户隔离 | ✅ | 真实 MySQL 行为检查 |
 | 多用户平台 | ✅ | 首个账号自动成为管理员、管理页跨租户统计、禁用/降权即时生效、管理员不能停用自己 |
+| 兑换码 | ⏳ | 逻辑与权限已覆盖 35 个用例；真实支付链路（收款、发货）在平台外人工完成，迁移 0012 待线上执行 |
 | OPML 导入 | ✅ | 5 种阅读器导出格式 |
 | 正文抽取 | ✅ | 真实文章页面验证，含 SPA 站点降级路径 |
 | AI 摘要 | ✅ | 线上生成 446 篇（覆盖率 91%），评分 2.5~9.2 |
 | 跨域 API | ✅ | 线上实测预检 204 / 非白名单 403 |
 | 重复文章去重 | ✅ | RSS guid 指纹，跨永久链接与换域名均生效 |
 | 失败暂停机制 | ✅ | 线上 3 个站点自动暂停，pause/resume 接口实测 |
-| 单元测试 | ✅ | 667 个用例 |
+| 单元测试 | ✅ | 746 个用例 |
 | Redis | ✅ | 线上真实环境（状态跟踪、限流均依赖它） |
 | 端到端部署 | ✅ | <https://ducircle.dusays.com> 持续运行 |
 

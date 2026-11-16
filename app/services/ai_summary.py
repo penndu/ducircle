@@ -4,6 +4,14 @@
 - 用户自带 Key → 不消耗平台额度，不受每日上限限制
 - 用平台额度 → 按 (用户, 日期) 计数，超额直接拒绝
 
+**平台额度其实是两桶**（v2.1.0 起）：
+
+- 免费日额度 ``ai_daily_quota``：平台送的，每天重置，不用就作废
+- 兑换余额 ``users.ai_summary_credits``：用户用兑换码买的，可累加、不过期
+
+先花免费的那桶，再花花钱买的——免费额度当天不作废就没了，
+余额永远在，顺序反了用户会觉得自己被薅。
+
 防重复花钱：正文哈希没变就不重新生成。这一条比什么优化都有效——
 大多数文章抓取后正文不会再变。
 """
@@ -11,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 
 import httpx
@@ -71,31 +80,119 @@ class AIKeyRequired(Exception):
 
 
 async def check_quota(user: User, db) -> tuple[bool, int, int]:
-    """检查额度。返回 (是否可用, 今日已用, 每日上限)。
+    """兼容旧调用：返回 (是否可用, 今日已用免费额度, 每日免费上限)。"""
+    state = await quota_state(user, db)
+    return state.allowed, state.used_today, state.daily_limit
 
-    用户自带 Key 时永远可用，且不计入额度。
+
+@dataclass
+class QuotaState:
+    """一次额度判定的完整结果。
+
+    ``source`` 决定这次生成从哪一桶里扣：
+
+    - ``own_key``：用户自己的 Key，不占平台任何资源
+    - ``free``：平台的每日免费额度
+    - ``credit``：兑换码换来的余额（用户付过钱）
+    - ``none``：都不行——要么去填 Key，要么去兑一张码
+    """
+
+    source: str
+    used_today: int
+    daily_limit: int
+    credits: int
+
+    @property
+    def allowed(self) -> bool:
+        return self.source != "none"
+
+    @property
+    def remaining(self) -> int | None:
+        """还能生成几次。None 表示不受限（自带 Key）。"""
+        if self.source == "own_key":
+            return None
+        return max(0, self.daily_limit - self.used_today) + self.credits
+
+
+async def quota_state(user: User, db) -> QuotaState:
+    """判定这次生成能用哪一桶额度。
+
+    优先级：**自带 Key > 每日免费额度 > 兑换余额**。
+
+    免费额度排在付费余额前面，是因为免费额度当天不用就作废，
+    而余额永远在——先花会过期的那个，对用户最有利。
     """
     settings = get_settings()
     limit = user.quota_limit(settings.ai_daily_quota)
-    if not user.ai_enabled:
-        return False, 0, limit
-    if user.has_own_ai_key:
-        return True, 0, limit  # 自带 Key 不受限
-    # 平台不提供免费额度（默认额度为 0），必须自带 Key。
-    if limit <= 0:
-        return False, 0, limit
+    credits = user.ai_summary_credits or 0
 
+    if not user.ai_enabled:
+        return QuotaState("none", 0, limit, credits)
+    if user.has_own_ai_key:
+        return QuotaState("own_key", 0, limit, credits)
+
+    # 只数「免费额度」那一桶：带 from_user_key 的是用户自己花的钱，
+    # 带 from_credit 的是用户买来的余额，都不能算进平台白送的额度。
     used = (
         await db.execute(
             select(func.count(AIQuotaLog.id)).where(
                 AIQuotaLog.user_id == user.id,
                 AIQuotaLog.quota_date == date.today(),
                 AIQuotaLog.from_user_key.is_(False),
+                AIQuotaLog.from_credit.is_(False),
             )
         )
     ).scalar_one()
 
-    return used < limit, used, limit
+    used = int(used)
+    if limit > 0 and used < limit:
+        return QuotaState("free", used, limit, credits)
+    if credits > 0:
+        return QuotaState("credit", used, limit, credits)
+    return QuotaState("none", used, limit, credits)
+
+
+async def _log_usage(
+    db,
+    *,
+    user: User,
+    post: Post,
+    provider: str,
+    model: str | None,
+    from_user_key: bool,
+    from_credit: bool,
+) -> None:
+    """记一笔额度消耗。
+
+    ``(user_id, quota_date, post_id)`` 上有唯一约束：用户点了「重置摘要」
+    再生成一次，第二次插入会撞约束、把这批任务的会话搞脏。
+    所以先查一次，有就不重复写——这一行的用途是「今日用量统计」，
+    不是账本；真正的账本是 ``users.ai_summary_credits`` 余额。
+    """
+    today = date.today()
+    exists = (
+        await db.execute(
+            select(AIQuotaLog.id).where(
+                AIQuotaLog.user_id == user.id,
+                AIQuotaLog.quota_date == today,
+                AIQuotaLog.post_id == post.id,
+            )
+        )
+    ).first()
+    if exists:
+        return
+
+    db.add(
+        AIQuotaLog(
+            user_id=user.id,
+            post_id=post.id,
+            quota_date=today,
+            provider=provider,
+            model=model,
+            from_user_key=from_user_key,
+            from_credit=from_credit,
+        )
+    )
 
 
 def _build_client(user: User, settings) -> tuple[LLMClient, str]:
@@ -155,15 +252,18 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
         return None
 
     # ---- 额度检查 ----
-    allowed, used, limit = await check_quota(user, db)
-    if not allowed:
-        if limit <= 0:
-            # 平台不提供免费额度，唯一的路是自己填 Key
+    # state 后面还要用来判断「这次从哪一桶扣」，所以整体留着而不是只取 allowed
+    state = await quota_state(user, db)
+    if not state.allowed:
+        if state.daily_limit <= 0:
+            # 平台不提供免费额度时，两条路：填自己的 Key，或兑一张码
             raise AIKeyRequired(
-                "生成摘要需要你自己的 API Key。到「设置 → AI 摘要」填一个，"
-                "填完立即生效，额度由你自己掌握。"
+                "生成摘要需要你自己的 API Key，或用兑换码兑换平台内置 AI 的摘要次数。"
+                "到「设置 → AI 摘要」填写或兑换，填完立即生效。"
             )
-        raise QuotaExceeded(f"今日额度已用完（{used}/{limit}）")
+        raise QuotaExceeded(
+            f"今日额度已用完（{state.used_today}/{state.daily_limit}）"
+        )
 
     # ---- 调用模型 ----
     try:
@@ -207,16 +307,21 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
 
     post.summary_at = datetime.now()
 
-    # 记录额度消耗
-    db.add(
-        AIQuotaLog(
-            user_id=user.id,
-            post_id=post.id,
-            quota_date=date.today(),
-            provider=provider,
-            model=client.model,
-            from_user_key=user.has_own_ai_key,
-        )
+    # ---- 扣额度 ----
+    # 兑换余额是用户付过钱的东西，必须真的扣在这个字段上；
+    # 免费额度和自带 Key 只记一笔日志，不动余额。
+    from_credit = state.source == "credit"
+    if from_credit:
+        user.ai_summary_credits = max(0, (user.ai_summary_credits or 0) - 1)
+
+    await _log_usage(
+        db,
+        user=user,
+        post=post,
+        provider=provider,
+        model=client.model,
+        from_user_key=user.has_own_ai_key,
+        from_credit=from_credit,
     )
 
     return {"summary": summary, "score": score, "model": client.model}

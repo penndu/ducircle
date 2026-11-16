@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserSession, DbSession
@@ -22,9 +22,24 @@ class QuotaOut(BaseModel):
     has_own_key: bool
     used_today: int
     daily_limit: int
-    remaining: int
-    # 平台不提供免费额度时为 True——前端据此提示「去填 Key」
+    remaining: int | None
+    # 平台不提供免费额度、用户也没兑过码时为 True —— 前端据此提示「去填 Key / 去兑换」
     key_required: bool = False
+    # 兑换码换来的剩余次数
+    credits: int = 0
+
+
+class RedeemIn(BaseModel):
+    code: str = Field(min_length=4, max_length=64)
+
+
+class RedeemOut(BaseModel):
+    ok: bool
+    code: str
+    plan: str
+    plan_label: str
+    credits_added: int
+    credits: int
 
 
 class SummarizeResultOut(BaseModel):
@@ -37,27 +52,52 @@ class SummarizeResultOut(BaseModel):
 
 @router.get("/quota", response_model=QuotaOut, summary="我的 AI 额度")
 async def my_quota(user: CurrentUserSession, db: DbSession) -> QuotaOut:
-    """查询今日额度使用情况。设置页展示这个。"""
-    from datetime import date
+    """查询今天的可用情况。设置页与概览页展示这个。
 
+    三个数字要分开给：``daily_limit``/``used_today`` 是平台每天送的免费额度，
+    ``credits`` 是用户用兑换码买来的余额。混成一个数字的话，
+    用户没法判断「我的次数怎么突然变少了」。
+    """
     from app.core.config import get_settings
-    from app.services.ai_summary import check_quota
+    from app.services.ai_summary import quota_state
 
-    allowed, used, limit = await check_quota(user, db)
+    state = await quota_state(user, db)
     settings = get_settings()
-
-    remaining = None if user.has_own_ai_key else max(0, limit - used)
 
     return QuotaOut(
         enabled=settings.ai_enabled and user.ai_enabled,
         has_own_key=user.has_own_ai_key,
-        used_today=used,
-        daily_limit=limit,
-        remaining=remaining,
+        used_today=state.used_today,
+        daily_limit=state.daily_limit,
+        remaining=state.remaining,
         key_required=(
-            not user.has_own_ai_key and limit <= 0 and user.ai_enabled
+            not user.has_own_ai_key
+            and state.daily_limit <= 0
+            and state.credits <= 0
+            and user.ai_enabled
         ),
+        credits=state.credits,
     )
+
+
+@router.post("/redeem", response_model=RedeemOut, summary="兑换码兑换 AI 摘要次数")
+async def redeem(user: CurrentUserSession, db: DbSession, payload: RedeemIn) -> RedeemOut:
+    """把兑换码换成平台 AI 摘要次数。
+
+    次数直接累加到余额上：同一账号可以兑多张，2 元 + 10 元 = 1100 次。
+    兑换码不设有效期，兑了就一直有效。
+    """
+    from app.services.redeem import RedeemError, redeem_code
+
+    try:
+        result = await redeem_code(db, user=user, raw_code=payload.code)
+    except RedeemError as exc:
+        # 400 而不是 404/409：对用户来说都是「这个码不能用」，
+        # 具体原因写在 detail 里，前端原样显示。
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await db.commit()
+    return RedeemOut(**result)
 
 
 @router.get("/usage", summary="额度使用历史")
@@ -66,7 +106,10 @@ async def usage_history(
     db: DbSession,
     days: int = Query(default=14, ge=1, le=90),
 ) -> list[dict]:
-    """最近 N 天的额度消耗。用于画出使用趋势。"""
+    """最近 N 天的额度消耗。用于画出使用趋势。
+
+    只统计平台免费额度那一桶——自带 Key 和兑换余额都不是平台的支出。
+    """
     from datetime import date, timedelta
 
     since = date.today() - timedelta(days=days)
@@ -78,6 +121,7 @@ async def usage_history(
                 AIQuotaLog.user_id == user.id,
                 AIQuotaLog.quota_date >= since,
                 AIQuotaLog.from_user_key.is_(False),
+                AIQuotaLog.from_credit.is_(False),
             )
             .group_by(AIQuotaLog.quota_date)
             .order_by(AIQuotaLog.quota_date)
@@ -160,22 +204,22 @@ async def batch_summarize(
 
     放后台执行——可能要跑几分钟，用户不该干等。
     """
-    from app.services.ai_summary import check_quota, summarize_pending_for_user
+    from app.services.ai_summary import quota_state, summarize_pending_for_user
 
-    # 前置拦截：平台不提供免费额度时，没填 Key 就直接说清楚，
+    # 前置拦截：既没填 Key 又没有兑换余额时，直接说清楚，
     # 别让用户点了按钮等半天，最后看到一句「生成失败」。
     #
-    # ⚠️ 别把 check_quota 返回的配额上限写回 limit 变量——
-    # 那会把「要处理几篇」变成「每日额度上限」，用户自带 Key 时额度上限是 0，
+    # ⚠️ 别把 quota_state 的 daily_limit 写回 limit 变量——
+    # 那会把「要处理几篇」变成「每日额度上限」，用户自带 Key 时上限是 0，
     # 结果一篇都不处理，接口还返回 200 说「已开始」。
-    # 两个值含义不同，名字要分开。
-    allowed, used, quota_limit = await check_quota(user, db)
-    if not allowed and quota_limit <= 0 and not user.has_own_ai_key:
+    # 两个值含义不同，名字必须分开。
+    state = await quota_state(user, db)
+    if not state.allowed:
         raise HTTPException(
             status_code=403,
             detail=(
-                "生成摘要需要你自己的 API Key。到「设置 → AI 摘要」填一个，"
-                "填完立即生效，额度由你自己掌握。"
+                "生成摘要需要你自己的 API Key，或用兑换码兑换平台内置 AI 的摘要次数。"
+                "到「设置 → AI 摘要」填写或兑换，填完立即生效。"
             ),
         )
 

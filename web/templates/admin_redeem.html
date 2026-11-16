@@ -1,0 +1,280 @@
+{% extends "layout.html" %}
+
+{% block title %}兑换码生成器 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="flex items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-xl font-medium">兑换码生成器</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      批量生成兑换码发给用户。用户兑换后即可用平台内置 AI 生成摘要，次数从余额里扣。
+    </p>
+  </div>
+  <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 shrink-0">仅管理员可见</span>
+</div>
+
+{# ---- 生成器 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">批量生成</h2>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    面值在生成时写进每一张码，以后再调价也不影响已经发出去的码。
+  </p>
+
+  <form onsubmit="return generate(event)" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+    <div class="md:col-span-1">
+      <label class="block text-sm text-gray-700 mb-1.5">档位</label>
+      <select id="gen-plan" class="w-full px-3 py-2 rounded border border-gray-300 bg-white text-sm">
+        {% for plan in plans %}
+        <option value="{{ plan.key }}">{{ plan.summary }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm text-gray-700 mb-1.5">数量</label>
+      <input id="gen-quantity" type="number" min="1" max="500" value="10"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm text-gray-700 mb-1.5">备注<span class="text-gray-400">（选填）</span></label>
+      <input id="gen-note" maxlength="255" placeholder="例如：双十一定制"
+             class="w-full px-3 py-2 rounded border border-gray-300 text-sm">
+    </div>
+    <div>
+      <button type="submit" id="gen-btn"
+              class="w-full px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-50">
+        生成
+      </button>
+    </div>
+  </form>
+
+  {# 生成结果：一次性把明文全给出来，并支持复制/下载 #}
+  <div id="gen-result" class="hidden mt-4 pt-4 border-t border-gray-200">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <p class="text-sm text-gray-700" id="gen-summary"></p>
+      <div class="flex gap-2">
+        <button onclick="copyGenerated()"
+                class="px-3 py-1.5 rounded border border-gray-300 text-xs hover:bg-gray-50">复制全部</button>
+        <a id="gen-download" href="#"
+           class="px-3 py-1.5 rounded border border-gray-300 text-xs hover:bg-gray-50">下载 TXT</a>
+      </div>
+    </div>
+    <textarea id="gen-codes" readonly rows="8"
+              class="w-full px-3 py-2 rounded bg-gray-50 border border-gray-200 font-mono text-xs"></textarea>
+  </div>
+</div>
+
+{# ---- 批次列表 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-3">最近的批次</h2>
+  {% if batches %}
+  <div class="table-scroll">
+    <table class="w-full text-sm">
+      <thead class="text-gray-500 text-xs">
+        <tr class="border-b border-gray-200">
+          <th class="text-left py-2 font-normal">批次号</th>
+          <th class="text-left py-2 font-normal">档位</th>
+          <th class="text-right py-2 font-normal">生成</th>
+          <th class="text-right py-2 font-normal">已用</th>
+          <th class="text-right py-2 font-normal">未用</th>
+          <th class="text-right py-2 font-normal">作废</th>
+          <th class="text-right py-2 font-normal">面值合计</th>
+          <th class="text-left py-2 font-normal pl-3">生成人</th>
+          <th class="text-right py-2 font-normal">时间</th>
+          <th class="text-right py-2 font-normal">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in batches %}
+        <tr class="border-b border-gray-100 last:border-0">
+          <td class="py-2 font-mono text-xs text-gray-700">{{ b.batch_no }}</td>
+          <td class="py-2 text-gray-700">{{ b.plan_label }}</td>
+          <td class="py-2 text-right">{{ b.quantity }}</td>
+          <td class="py-2 text-right text-gray-900">{{ b.used }}</td>
+          <td class="py-2 text-right">{{ b.unused }}</td>
+          <td class="py-2 text-right text-gray-400">{{ b.revoked }}</td>
+          <td class="py-2 text-right">¥{{ b.face_value_yuan }}</td>
+          <td class="py-2 pl-3 text-gray-500 text-xs">{{ b.created_by_name or '—' }}</td>
+          <td class="py-2 text-right text-gray-500 text-xs">{{ b.created_at | datetime }}</td>
+          <td class="py-2 text-right whitespace-nowrap">
+            <a href="/api/admin/redeem-codes/export?batch_id={{ b.id }}"
+               class="text-xs text-gray-600 hover:text-gray-900">导出未用</a>
+            <a href="/web/admin/redeem?batch_id={{ b.id }}"
+               class="text-xs text-gray-600 hover:text-gray-900 ml-2">只看本批</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400">还没有生成过兑换码。用上面的表单生成第一批。</p>
+  {% endif %}
+</div>
+
+{# ---- 兑换码列表 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+    <h2 class="font-medium">兑换码</h2>
+    <p class="text-xs text-gray-400">
+      共 {{ counts.all }} 张 · 未用 {{ counts.unused }} · 已用 {{ counts.used }} · 作废 {{ counts.revoked }}
+    </p>
+  </div>
+
+  <form method="get" action="/web/admin/redeem"
+        class="flex flex-wrap items-center gap-2 mb-4">
+    <input type="search" name="q" value="{{ q }}" placeholder="按兑换码搜索"
+           class="flex-1 min-w-[12rem] px-3 py-2 rounded border border-gray-300 text-sm focus:outline-none focus:border-gray-400 font-mono">
+    <select name="status" class="px-3 py-2 rounded border border-gray-300 text-sm bg-white">
+      {% for value, label in [('all','全部状态'),('unused','未使用'),('used','已使用'),('revoked','已作废')] %}
+      <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="plan" class="px-3 py-2 rounded border border-gray-300 text-sm bg-white">
+      <option value="all" {% if plan == 'all' %}selected{% endif %}>全部档位</option>
+      {% for p in plans %}
+      <option value="{{ p.key }}" {% if plan == p.key %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <select name="batch_id" class="px-3 py-2 rounded border border-gray-300 text-sm bg-white">
+      <option value="">全部批次</option>
+      {% for b in batches %}
+      <option value="{{ b.id }}" {% if batch_id == b.id %}selected{% endif %}>{{ b.batch_no }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit"
+            class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">筛选</button>
+    {% if q or status_filter != 'all' or plan != 'all' or batch_id %}
+    <a href="/web/admin/redeem" class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">清除</a>
+    {% endif %}
+  </form>
+
+  {% if codes %}
+  <div class="table-scroll">
+    <table class="w-full text-sm">
+      <thead class="text-gray-500 text-xs">
+        <tr class="border-b border-gray-200">
+          <th class="text-left py-2 font-normal">兑换码</th>
+          <th class="text-left py-2 font-normal">档位</th>
+          <th class="text-right py-2 font-normal">次数</th>
+          <th class="text-left py-2 font-normal pl-3">状态</th>
+          <th class="text-left py-2 font-normal pl-3">使用者</th>
+          <th class="text-right py-2 font-normal">使用时间</th>
+          <th class="text-right py-2 font-normal">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in codes %}
+        <tr class="border-b border-gray-100 last:border-0">
+          <td class="py-2 font-mono text-xs text-gray-700">{{ c.code }}</td>
+          <td class="py-2 text-gray-700">{{ c.plan_label }}</td>
+          <td class="py-2 text-right">{{ c.credits }}</td>
+          <td class="py-2 pl-3">
+            {% if c.status == 'unused' %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">未使用</span>
+            {% elif c.status == 'used' %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">已使用</span>
+            {% else %}
+            <span class="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">已作废</span>
+            {% endif %}
+          </td>
+          <td class="py-2 pl-3 text-gray-600 text-xs">
+            {{ c.used_by_name or '—' }}
+            {% if c.revoke_reason %}<span class="text-gray-400">（{{ c.revoke_reason }}）</span>{% endif %}
+          </td>
+          <td class="py-2 text-right text-gray-500 text-xs">{{ c.used_at | datetime }}</td>
+          <td class="py-2 text-right whitespace-nowrap">
+            {% if c.status == 'unused' %}
+            <button onclick="doRevoke({{ c.id }}, '{{ c.code }}')"
+                    class="text-xs text-red-600 hover:text-red-800">作废</button>
+            {% else %}
+            <span class="text-xs text-gray-300">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="flex items-center justify-between mt-4 text-sm">
+    <span class="text-xs text-gray-400">第 {{ page }} / {{ total_pages }} 页</span>
+    <div class="flex gap-2">
+      {% if page > 1 %}
+      <a class="px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50"
+         href="/web/admin/redeem?{{ filter_qs }}&page={{ page - 1 }}">上一页</a>
+      {% endif %}
+      {% if page < total_pages %}
+      <a class="px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50"
+         href="/web/admin/redeem?{{ filter_qs }}&page={{ page + 1 }}">下一页</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <p class="text-sm text-gray-400">没有符合条件的兑换码。</p>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+async function generate(ev) {
+  ev.preventDefault();
+  const plan = document.getElementById('gen-plan').value;
+  const quantity = parseInt(document.getElementById('gen-quantity').value, 10);
+  const note = document.getElementById('gen-note').value;
+  const btn = document.getElementById('gen-btn');
+
+  if (!quantity || quantity < 1) { showToast('数量至少 1 张', false); return false; }
+  if (quantity > 500) { showToast('一次最多 500 张', false); return false; }
+
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const d = await api('/api/admin/redeem-codes/batches', {
+      method: 'POST',
+      body: JSON.stringify({ plan, quantity, note: note || null }),
+    });
+    const b = d.batch;
+    document.getElementById('gen-summary').textContent =
+      `批次 ${b.batch_no} · ${b.plan_label} · ${b.quantity} 张 · 面值合计 ¥${b.face_value_yuan}`;
+    document.getElementById('gen-codes').value = d.codes.join('\n');
+    document.getElementById('gen-download').href =
+      `/api/admin/redeem-codes/export?batch_id=${b.id}`;
+    document.getElementById('gen-result').classList.remove('hidden');
+    showToast(`已生成 ${b.quantity} 张`);
+    // 列表要跟着更新（批次表、筛选下拉都要有新批次）
+    setTimeout(() => location.reload(), 2000);
+  } catch (e) {
+    showToast(e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成';
+  }
+  return false;
+}
+
+function copyGenerated() {
+  const box = document.getElementById('gen-codes');
+  if (!box.value) return showToast('没有可复制的内容', false);
+  navigator.clipboard.writeText(box.value)
+    .then(() => showToast('已复制全部兑换码'))
+    .catch(() => showToast('复制失败，请手动选择文本', false));
+}
+
+async function doRevoke(id, code) {
+  if (!confirm(`作废 ${code}？\n\n作废后用户再也无法用这张码兑换。`)) return;
+  const reason = prompt('作废原因（选填，会记录在案）') || null;
+  try {
+    await api(`/api/admin/redeem-codes/codes/${id}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+    showToast('已作废');
+    setTimeout(() => location.reload(), 600);
+  } catch (e) {
+    showToast(e.message, false);
+  }
+}
+{% endblock %}

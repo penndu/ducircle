@@ -1,0 +1,159 @@
+{% extends "layout.html" %}
+
+{% block title %}兑换 AI 次数 · {{ app_name }}{% endblock %}
+
+{% block page %}
+<div class="max-w-[900px]">
+<div class="flex items-start justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-xl font-medium">兑换 AI 摘要次数</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      用兑换码换取平台内置 AI 的摘要次数。不想自己申请模型服务商的 Key，走这条路。
+    </p>
+  </div>
+</div>
+
+{# ---- 余额 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="text-xs text-gray-500">可用摘要次数</p>
+      <p class="text-3xl font-medium mt-1" id="credits-value">{{ credits }}</p>
+      <p class="text-xs text-gray-400 mt-1">
+        次 <span class="mx-1">·</span>不过期、可累加
+        {%- if current_user.has_own_ai_key %}
+        <span class="mx-1">·</span>你已配置自己的 Key，优先用自己的
+        {%- endif %}
+      </p>
+    </div>
+    {% if current_user.has_own_ai_key %}
+    <p class="text-xs text-gray-400 leading-relaxed max-w-[22rem]">
+      自带 Key 不受次数限制，余额不会被消耗。等哪天把 Key 删了，
+      这里剩下的次数才会开始扣。
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{# ---- 兑换 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">输入兑换码</h2>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    大小写、连字符都不敏感，整段粘贴也能识别。
+  </p>
+  <form onsubmit="return doRedeem(event)" class="flex flex-col md:flex-row gap-2">
+    <input id="redeem-code" autocomplete="off" spellcheck="false"
+           placeholder="FC2-XXXX-XXXX-XXXX-XXXX"
+           class="flex-1 px-3 py-2 rounded bg-white border border-gray-300 font-mono text-sm uppercase tracking-wide">
+    <button type="submit" id="redeem-btn"
+            class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 whitespace-nowrap disabled:opacity-50">
+      兑换
+    </button>
+  </form>
+  <p id="redeem-tip" class="hidden mt-3 text-xs px-3 py-2 rounded bg-green-50 text-green-800 border border-green-200"></p>
+</div>
+
+{# ---- 定价 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">兑换码档位</h2>
+  <p class="text-sm text-gray-500 mb-4 leading-relaxed">
+    向管理员购买。同一账号可以兑多张，次数直接累加。
+  </p>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    {% for plan in plans %}
+    <div class="rounded-lg border border-gray-200 p-4">
+      <div class="flex items-baseline justify-between">
+        <span class="font-medium">{{ plan.label }}</span>
+        <span class="text-lg font-medium">
+          <span class="text-sm">¥</span>{{ plan.price_cents // 100 }}
+        </span>
+      </div>
+      <p class="text-sm text-gray-500 mt-2">{{ plan.summary }}</p>
+      <p class="text-xs text-gray-400 mt-1">
+        约 ¥{{ '%.3f' % (plan.price_cents / plan.credits) }} / 次
+      </p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ---- 怎么用 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+  <h2 class="font-medium mb-1">次数怎么用</h2>
+  <ul class="text-sm text-gray-600 space-y-2 mt-3 list-disc pl-5 leading-relaxed">
+    <li>在「文章流」或概览页点「生成摘要」，每成功生成一篇扣 1 次。</li>
+    <li>不填自己的 API Key 时，平台内置的 AI 会自动顶上。</li>
+    <li>次数不设有效期，没用完的一直在；兑两张就是两档相加。</li>
+    <li>同一篇文章生成过就不再重复扣——正文没变不会重新花钱。</li>
+  </ul>
+  <div class="mt-4 flex flex-wrap gap-2">
+    <a href="/web/posts" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">去文章流生成摘要</a>
+    <a href="/web/settings" class="px-3 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">配置自己的 API Key</a>
+  </div>
+</div>
+
+{# ---- 兑换记录 ---- #}
+<div class="bg-white rounded-lg border border-gray-200 p-5">
+  <h2 class="font-medium mb-1">我的兑换记录</h2>
+  {% if my_codes %}
+  <div class="table-scroll mt-3">
+    <table class="w-full text-sm">
+      <thead class="text-gray-500 text-xs">
+        <tr class="border-b border-gray-200">
+          <th class="text-left py-2 font-normal">兑换码</th>
+          <th class="text-left py-2 font-normal">档位</th>
+          <th class="text-right py-2 font-normal">次数</th>
+          <th class="text-right py-2 font-normal">兑换时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in my_codes %}
+        <tr class="border-b border-gray-100 last:border-0">
+          <td class="py-2 font-mono text-xs text-gray-600">{{ c.code }}</td>
+          <td class="py-2 text-gray-700">{{ plans | selectattr('key', 'equalto', c.plan) | map(attribute='label') | first or c.plan }}</td>
+          <td class="py-2 text-right text-gray-900">+{{ c.credits }}</td>
+          <td class="py-2 text-right text-gray-500 text-xs">{{ c.used_at | datetime }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-gray-400 mt-3">还没有兑换过。拿到兑换码后在上面输入即可。</p>
+  {% endif %}
+</div>
+</div>
+{% endblock %}
+
+{% block page_scripts %}
+async function doRedeem(ev) {
+  ev.preventDefault();
+  const input = document.getElementById('redeem-code');
+  const tip = document.getElementById('redeem-tip');
+  const btn = document.getElementById('redeem-btn');
+  const code = (input.value || '').trim();
+  if (!code) { showToast('请输入兑换码', false); return false; }
+
+  btn.disabled = true;
+  btn.textContent = '兑换中…';
+  try {
+    const d = await api('/api/ai/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    document.getElementById('credits-value').textContent = d.credits;
+    tip.textContent = `兑换成功：${d.plan_label} +${d.credits_added} 次，当前余额 ${d.credits} 次。`;
+    tip.classList.remove('hidden');
+    showToast(`兑换成功，+${d.credits_added} 次`);
+    input.value = '';
+    // 刷新页面以更新下方的兑换记录
+    setTimeout(() => location.reload(), 1200);
+  } catch (e) {
+    showToast(e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '兑换';
+  }
+  return false;
+}
+{% endblock %}

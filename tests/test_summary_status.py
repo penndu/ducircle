@@ -170,17 +170,24 @@ class TestBatchLimitNotOverwritten:
     def test_batch_does_not_overwrite_limit(self):
         """batch 接口里不能把配额上限写回 limit。
 
-        只看 batch 那段——`/quota` 接口里的 limit 语义确实是配额上限。
+        v2.1.0 起额度判定改成 quota_state()，返回的是一个 QuotaState
+        而不是三元组——**连「解包覆盖」的机会都没有了**，所以断言升级成：
+        1. 不许再把额度相关的东西解包进 limit；
+        2. 判定必须走 quota_state（而不是旧的三元组接口）；
+        3. limit 只用于「这批处理几篇」，仍原样传给后台任务。
         """
         import inspect
 
         from app.api.ai import batch_summarize
 
         src = inspect.getsource(batch_summarize)
-        assert "allowed, used, limit = await check_quota" not in src, (
-            "check_quota 的返回值覆盖了 limit（配额上限 ≠ 处理篇数）"
+        assert "= await check_quota" not in src, (
+            "又用三元组解包了：配额上限很容易被顺手写回 limit"
         )
-        assert "quota_limit" in src
+        assert "state = await quota_state" in src
+        assert "background.add_task(summarize_pending_for_user, user.id, limit)" in src, (
+            "limit 必须原样是「处理篇数」，不能被额度上限污染"
+        )
 
 
 class TestBatchStatusEndpoint:
