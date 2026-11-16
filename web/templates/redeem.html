@@ -69,9 +69,6 @@
         </span>
       </div>
       <p class="text-sm text-gray-500 mt-2">{{ plan.summary }}</p>
-      <p class="text-xs text-gray-400 mt-1">
-        约 ¥{{ '%.3f' % (plan.price_cents / plan.credits) }} / 次
-      </p>
     </div>
     {% endfor %}
   </div>
