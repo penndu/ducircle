@@ -52,6 +52,11 @@
         {% endif %}
       </div>
 
+      {% if not post.summary %}
+      <button onclick="generateSummary({{ post.id }}, this)"
+              class="self-start text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-500 hover:border-gray-900 hover:text-gray-900 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="调用 AI 生成这篇摘要">生成摘要</button>
+      {% endif %}
       <button onclick="deletePost({{ post.id }})"
               class="self-start text-gray-300 hover:text-red-600 text-xs px-1 shrink-0"
               title="删除这篇">×</button>
@@ -78,6 +83,27 @@
 {% endblock %}
 
 {% block page_scripts %}
+async function generateSummary(id, btn) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const result = await api(`/api/ai/posts/${id}/summarize`, { method: 'POST' });
+    if (result?.ok) {
+      showToast('摘要已生成', true);
+      location.reload();
+      return;
+    }
+    showToast(result?.reason || '未生成摘要', false);
+  } catch (e) {
+    showToast(e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 async function deletePost(id) {
   if (!confirm('确定删除这篇文章吗？')) return;
   try {
