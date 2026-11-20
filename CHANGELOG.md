@@ -7,6 +7,16 @@
 
 ---
 
+## [2.2.1] - 2026-11-20
+
+### 新增
+
+- 后台文章流页：待摘要文章右侧新增「生成摘要」按钮，直接调用单篇摘要接口。
+  - 生成中禁用按钮防重复点击；成功刷新页面显示摘要
+  - 失败原因（未配置 Key / 额度不足 / 正文抽取失败）直接提示
+
+---
+
 ## [2.2.0] - 2026-11-16
 
 ### 新增
@@ -296,6 +306,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[2.2.1]: https://github.com/penndu/ducircle/releases/tag/v2.2.1
 [2.0.1]: https://github.com/penndu/ducircle/releases/tag/v2.0.1
 [2.0.0]: https://github.com/penndu/ducircle/releases/tag/v2.0.0
 [1.1.0]: https://github.com/penndu/ducircle/releases/tag/v1.1.0
