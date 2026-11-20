@@ -271,6 +271,17 @@ async def summarize_post(
         logger.debug("文章 %d 正文未变化，跳过", post.id)
         return skip("正文未变化，无需重新生成")
 
+    # ---- 平台模式前置检查 ----
+    # 平台模式用的是服务端统一 Key（AI_PLATFORM_API_KEY）。没配时如果继续走，
+    # _build_client 会构造出 `Authorization: Bearer ` 这种非法请求头，
+    # 最终报出 "Illegal header value" 这种用户完全看不懂的底层错误。
+    if not user.uses_custom_ai and not settings.ai_platform_api_key:
+        logger.warning("平台 AI 未配置服务端 Key，用户 %d 无法生成摘要", user.id)
+        return skip(
+            "平台 AI 尚未配置服务端 Key，请联系管理员；"
+            "或到「设置 → AI 摘要」切换到自定义 AI 并填自己的 Key"
+        )
+
     # ---- 额度检查 ----
     # state 后面还要用来判断「这次从哪一桶扣」，所以整体留着而不是只取 allowed
     state = await quota_state(user, db)

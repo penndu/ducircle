@@ -145,6 +145,15 @@ class LLMClient:
     ) -> str:
         settings = get_settings()
 
+        if not self.api_key:
+            # 空 Key 会拼出 `Bearer ` 这种非法请求头，httpx 直接抛
+            # "Illegal header value"，排障时完全看不出是配置漏了。
+            raise LLMError(
+                "AI 服务商 API Key 未配置：平台模式请联系管理员配置服务端 Key；"
+                "自定义模式请到「设置 → AI 摘要」填写自己的 Key",
+                permanent=False,
+            )
+
         headers = {"Content-Type": "application/json"}
         if self.config.style == "gemini":
             url = f"{self.config.base_url}/models/{self.model}:generateContent"

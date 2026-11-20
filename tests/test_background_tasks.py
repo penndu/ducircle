@@ -463,9 +463,13 @@ class TestManualTriggerBypassesCron:
             lambda user_id, when: _noop(),
         )
 
+        from datetime import datetime
+
         class _FakeResult:
             def all(self):
-                return [(1, None, None)]
+                # last_run=None 会触发「首次执行 10 分钟窗口」，
+                # 测试在 00:00~00:10 之间会随机失败。给个刚抓过的时间稳定语义。
+                return [(1, None, datetime.now())]
 
         class _FakeSession:
             async def execute(self, stmt):

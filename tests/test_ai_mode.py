@@ -152,8 +152,12 @@ async def test_platform_mode_consumes_credit():
     uid, pid = await _seed(factory, mode=AI_MODE_PLATFORM, key=None, credits=3)
 
     import app.services.ai_summary as mod
+    from app.core.config import Settings
 
+    settings = Settings()
+    settings.ai_platform_api_key = "sk-test-platform"
     monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mod, "get_settings", lambda: settings)
     monkeypatch.setattr(mod, "_build_client", lambda u, s: (_OkClient(), "test"))
     try:
         async with factory() as db:
@@ -192,3 +196,45 @@ async def test_build_client_respects_mode():
     client, provider = _build_client(custom_user, settings)
     assert provider == "minimax_cn"
     assert client.model == "own-model"
+
+
+@pytest.mark.asyncio
+async def test_platform_mode_without_server_key_reports_clear_reason(monkeypatch):
+    """平台没配服务端 Key 时：给出可读提示，且不扣用户兑换次数。"""
+    from app.core.config import Settings
+    import app.services.ai_summary as mod
+
+    engine = _make_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    uid, pid = await _seed(factory, mode=AI_MODE_PLATFORM, key=None, credits=5)
+
+    settings = Settings()
+    settings.ai_platform_api_key = ""
+    monkeypatch.setattr(mod, "get_settings", lambda: settings)
+
+    reasons: list[str] = []
+    try:
+        async with factory() as db:
+            user = await db.get(User, uid)
+            post = await db.get(Post, pid)
+            result = await mod.summarize_post(post, user, db, skip_reason=reasons)
+            assert result is None
+            assert reasons, "应给出跳过原因"
+            assert "服务端 Key" in reasons[0], reasons[0]
+            assert "Illegal header" not in reasons[0], reasons[0]
+            assert user.ai_summary_credits == 5, "配置缺失不该扣次数"
+    finally:
+        monkeypatch.undo()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_llm_client_rejects_empty_key_before_network():
+    """空 Key 必须抛可读错误，而不是让 httpx 报非法请求头。"""
+    from app.services.llm import LLMClient, LLMError
+
+    client = LLMClient(provider="siliconflow", api_key="", model="m")
+    with pytest.raises(LLMError, match="API Key 未配置"):
+        await client.complete("test")

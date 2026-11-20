@@ -7,6 +7,18 @@
 
 ---
 
+## [2.3.1] - 2026-11-21
+
+### 修复
+
+- 平台 AI 模式在服务端未配置 `AI_PLATFORM_API_KEY` 时，不再用空 Key 拼出
+  `Authorization: Bearer ` 非法请求头、报出「Illegal header value」这种看不懂的错误；
+  现在明确提示「平台 AI 尚未配置服务端 Key」，且不扣兑换次数。
+- LLM 客户端统一拦截空 Key，自定义模式漏填 Key 同样给出可读提示。
+- 修复 `test_force_skips_cron_gate` 在每天 00:00~00:10 之间会随机失败的问题。
+
+---
+
 ## [2.3.0] - 2026-11-20
 
 ### 新增
@@ -333,6 +345,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[2.3.1]: https://github.com/penndu/ducircle/releases/tag/v2.3.1
 [2.3.0]: https://github.com/penndu/ducircle/releases/tag/v2.3.0
 [2.2.2]: https://github.com/penndu/ducircle/releases/tag/v2.2.2
 [2.2.1]: https://github.com/penndu/ducircle/releases/tag/v2.2.1

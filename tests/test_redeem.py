@@ -493,7 +493,12 @@ async def test_summary_consumes_credit(app_env, monkeypatch):
     uid, pid = await _seed_post(factory, own_key=None, credits=3)
 
     import app.services.ai_summary as mod
+    from app.core.config import Settings
 
+    # 平台模式需要服务端 Key；测试环境模拟已配置好
+    settings = Settings()
+    settings.ai_platform_api_key = "sk-test-platform"
+    monkeypatch.setattr(mod, "get_settings", lambda: settings)
     monkeypatch.setattr(mod, "_build_client", lambda u, s: (_OkClient(), "test"))
 
     from sqlalchemy import select
@@ -555,6 +560,11 @@ async def test_no_key_no_credit_raises(app_env, monkeypatch):
     uid, pid = await _seed_post(factory, own_key=None, credits=0)
 
     import app.services.ai_summary as mod
+    from app.core.config import Settings
+
+    settings = Settings()
+    settings.ai_platform_api_key = "sk-test-platform"
+    monkeypatch.setattr(mod, "get_settings", lambda: settings)
 
     async with factory() as db:
         user = await db.get(mod.User, uid)
