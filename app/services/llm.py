@@ -22,11 +22,16 @@ logger = logging.getLogger("ducircle.llm")
 
 
 class LLMError(Exception):
-    """LLM 调用失败。区分可重试与不可重试，便于降级处理。"""
+    """LLM 调用失败。区分可重试、不可重试、以及是否永久失败。"""
 
-    def __init__(self, message: str, retryable: bool = False) -> None:
+    def __init__(
+        self, message: str, retryable: bool = False, permanent: bool = True
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        # permanent=False：这次不该重试，但换 Key / 配置后还能恢复。
+        # 例如 401 Key 无效——不能写进 summary_failed，否则批量永远跳过。
+        self.permanent = permanent
 
 
 @dataclass
@@ -180,7 +185,12 @@ class LLMClient:
                 resp = await client.post(url, headers=headers, json=payload)
 
                 if resp.status_code == 401:
-                    raise LLMError("API Key 无效", retryable=False)
+                    raise LLMError(
+                        "API Key 无效（服务商返回 401）："
+                        "自带 Key 请到「设置 → AI 摘要」检查，平台 Key 请联系管理员",
+                        retryable=False,
+                        permanent=False,
+                    )
                 if resp.status_code == 429:
                     raise LLMError("触发服务商限流", retryable=True)
                 if resp.status_code >= 500:

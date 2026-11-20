@@ -216,22 +216,31 @@ def _build_client(user: User, settings) -> tuple[LLMClient, str]:
     )
 
 
-async def summarize_post(post: Post, user: User, db) -> dict | None:
+async def summarize_post(
+    post: Post, user: User, db, *, skip_reason: list[str] | None = None
+) -> dict | None:
     """为单篇文章生成摘要。
 
-    返回 None 表示跳过（额度用尽、已存在、人工锁定等）。
+    返回 None 表示跳过（正文抽取失败、人工锁定等）。
+    skip_reason 传入列表时，跳过原因写进列表——手动触发的按钮需要把它提示给用户。
     """
+
+    def skip(reason: str) -> None:
+        if skip_reason is not None:
+            skip_reason.append(reason)
+        return None
+
     settings = get_settings()
     if not settings.ai_enabled:
         logger.debug("AI 摘要功能未启用")
-        return None
+        return skip("AI 摘要功能未启用")
 
     # 人工修正过的摘要不覆盖——Q19 的需求里明确要这个保护
     if post.summary_edited:
-        return None
+        return skip("这篇摘要已人工修改，不会被覆盖")
 
     if not user.ai_enabled:
-        return None
+        return skip("你的 AI 摘要已停用，请到「设置 → AI 摘要」开启")
 
     # ---- 抽取正文 ----
     site_url = None
@@ -242,14 +251,14 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
     content = await _extract_content(post, site_url)
     if not content:
         logger.info("文章 %d 正文抽取失败，跳过摘要", post.id)
-        return None
+        return skip("正文抽取失败：文章页可能是动态渲染或已失效")
 
     chash = content_hash(content)
 
     # 正文没变就不重复花钱
     if not needs_summary(post.summary_content_hash, chash):
         logger.debug("文章 %d 正文未变化，跳过", post.id)
-        return None
+        return skip("正文未变化，无需重新生成")
 
     # ---- 额度检查 ----
     # state 后面还要用来判断「这次从哪一桶扣」，所以整体留着而不是只取 allowed
@@ -270,7 +279,7 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
         client, provider = _build_client(user, settings)
     except LLMError as exc:
         logger.warning("构造客户端失败：%s", exc)
-        return None
+        return skip(str(exc))
 
     prompt = SUMMARY_PROMPT.format(
         title=post.title,
@@ -285,17 +294,21 @@ async def summarize_post(post: Post, user: User, db) -> dict | None:
     except LLMError as exc:
         if exc.retryable:
             logger.warning("文章 %d 摘要失败（可重试）：%s", post.id, exc)
+        elif not getattr(exc, "permanent", True):
+            # Key 无效这类：现在不该重试，但换 Key 后能恢复。
+            # 不能标记 summary_failed，否则批量生成永远跳过这篇。
+            logger.warning("文章 %d 摘要失败（换 Key 后可恢复）：%s", post.id, exc)
         else:
-            # 不可重试的失败（如模型内容安全拦截）——再试多少次都一样。
+            # 真正不可重试（如模型内容安全拦截）——再试多少次都一样。
             # 标记出来，以后批量生成直接跳过，不浪费时间和额度。
             logger.warning("文章 %d 摘要失败（不再重试）：%s", post.id, exc)
             post.summary_failed = True
             post.summary_error = str(exc)[:500]
-        return None
+        return skip(str(exc))
 
     summary, score, reason = parse_summary_response(raw)
     if not summary:
-        return None
+        return skip("模型返回内容无法解析为摘要，请重试")
 
     # ---- 落库 ----
     post.summary = summary
@@ -522,7 +535,11 @@ async def summarize_single(user_id: int, post_id: int) -> dict:
         if user is None or post is None:
             raise ValueError("用户或文章不存在")
 
-        result = await summarize_post(post, user, db)
+        reasons: list[str] = []
+        result = await summarize_post(post, user, db, skip_reason=reasons)
         if result is None:
-            return {"ok": False, "reason": "无需生成（已存在或正文抽取失败）"}
+            return {
+                "ok": False,
+                "reason": reasons[0] if reasons else "无需生成（正文抽取失败或已存在）",
+            }
         return {"ok": True, **result}

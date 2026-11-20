@@ -7,6 +7,17 @@
 
 ---
 
+## [2.2.2] - 2026-11-20
+
+### 修复
+
+- 后台「生成摘要」按钮不再把所有跳过原因合并成一句「无需生成」：
+  现在透传具体原因（API Key 无效 / 正文抽取失败 / 正文未变化 / 人工锁定等）。
+- API Key 无效（服务商返回 401）不再标记为永久失败。之前会把文章写进
+  `summary_failed`，导致换 Key 后批量生成仍永久跳过该篇。
+
+---
+
 ## [2.2.1] - 2026-11-20
 
 ### 新增
@@ -306,6 +317,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[2.2.2]: https://github.com/penndu/ducircle/releases/tag/v2.2.2
 [2.2.1]: https://github.com/penndu/ducircle/releases/tag/v2.2.1
 [2.0.1]: https://github.com/penndu/ducircle/releases/tag/v2.0.1
 [2.0.0]: https://github.com/penndu/ducircle/releases/tag/v2.0.0

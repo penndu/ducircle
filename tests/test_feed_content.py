@@ -238,6 +238,97 @@ class TestSummaryFailedMarker:
 
         await engine.dispose()
 
+    @pytest.mark.asyncio
+    async def test_api_key_invalid_is_recoverable(self, monkeypatch):
+        """401 Key 无效不写 summary_failed，且跳过原因传给调用方。"""
+        from app.models import Base, Post, Site, User
+        from app.services.ai_summary import summarize_post
+        from app.services.llm import LLMError
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with factory() as db:
+            user = User(username="u2", password_hash="x", ai_api_key="bad-key")
+            db.add(user)
+            await db.flush()
+            site = Site(user_id=user.id, name="s", url="https://x.com", url_hash="h2")
+            db.add(site)
+            await db.flush()
+            post = Post(
+                user_id=user.id, site_id=site.id, title="二",
+                link="https://x.com/p/2/", guid_hash="g2",
+                raw_content="<p>" + "正文内容。" * 100 + "</p>",
+            )
+            db.add(post)
+            await db.flush()
+
+            class _UnauthorizedClient:
+                model = "test"
+
+                async def complete(self, *a, **kw):
+                    raise LLMError(
+                        "API Key 无效（服务商返回 401）",
+                        retryable=False,
+                        permanent=False,
+                    )
+
+            import app.services.ai_summary as mod
+
+            monkeypatch.setattr(
+                mod, "_build_client", lambda u, s: (_UnauthorizedClient(), "test")
+            )
+            reasons: list[str] = []
+            result = await summarize_post(post, user, db, skip_reason=reasons)
+
+            assert result is None
+            assert "API Key 无效" in reasons[0], "跳过原因要能展示给用户"
+            assert post.summary_failed is False, "换 Key 后应可恢复，不能标记永久失败"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_single_surfaces_skip_reason(self, monkeypatch):
+        """手动按钮应返回具体原因，而不是笼统的「无需生成」。"""
+        from contextlib import asynccontextmanager
+
+        import app.services.ai_summary as mod
+
+        class FakeDB:
+            async def get(self, model, ident):
+                return object()
+
+        @asynccontextmanager
+        async def fake_scope():
+            yield FakeDB()
+
+        @asynccontextmanager
+        async def fake_tenant(uid):
+            yield
+
+        async def fake_summarize(post, user, db, *, skip_reason=None):
+            if skip_reason is not None:
+                skip_reason.append("正文抽取失败：文章页可能是动态渲染或已失效")
+            return None
+
+        monkeypatch.setattr(mod, "session_scope", fake_scope)
+        monkeypatch.setattr(mod, "as_tenant_async", fake_tenant)
+        monkeypatch.setattr(mod, "summarize_post", fake_summarize)
+
+        result = await mod.summarize_single(1, 1)
+        assert result == {
+            "ok": False,
+            "reason": "正文抽取失败：文章页可能是动态渲染或已失效",
+        }
+
 
 class TestSalvageSummary:
     """模型返回不合法 JSON 时，不能把原文当摘要存进库。
