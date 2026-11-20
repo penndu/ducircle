@@ -75,29 +75,47 @@
     为每篇文章生成摘要和推荐分，帮你快速判断值不值得点开。
   </p>
 
-  {# 平台不提供免费额度：没填 Key 就用不了，这里必须说清楚 #}
-  {% if not current_user.has_own_ai_key %}
-  <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200">
-    <p class="text-sm text-amber-900 font-medium mb-1">需要你自己的 API Key</p>
-    <p class="text-xs text-amber-800 leading-relaxed">
-      平台不再提供免费摘要额度。两条路：填一个自己的 Key（费用直接由服务商向你收取，
-      额度你自己掌握），或者用兑换码换平台内置 AI 的次数。
-    </p>
+  {# 模式切换：平台 AI 扣兑换次数；自定义 AI 用服务商 Key，不扣次数 #}
+  <div class="mb-4">
+    <p class="text-sm text-gray-700 mb-2">生成方式</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <label id="mode-platform-label"
+             class="cursor-pointer rounded-lg border p-3 transition-colors
+                    {% if current_user.ai_mode == 'platform' %}border-gray-900 bg-gray-50{% else %}border-gray-200 hover:border-gray-400{% endif %}">
+        <div class="flex items-center gap-2">
+          <input type="radio" name="ai-mode" value="platform" {% if current_user.ai_mode == 'platform' %}checked{% endif %}
+                 onchange="saveAI()" class="w-4 h-4 text-gray-900">
+          <span class="text-sm font-medium text-gray-900">平台 AI</span>
+        </div>
+        <p class="text-xs text-gray-500 mt-1.5 leading-relaxed">
+          用平台内置模型，按次数计费（下面的兑换余额）。不用自己申请 Key。
+        </p>
+      </label>
+      <label id="mode-custom-label"
+             class="cursor-pointer rounded-lg border p-3 transition-colors
+                    {% if current_user.ai_mode == 'custom' %}border-gray-900 bg-gray-50{% else %}border-gray-200 hover:border-gray-400{% endif %}">
+        <div class="flex items-center gap-2">
+          <input type="radio" name="ai-mode" value="custom" {% if current_user.ai_mode == 'custom' %}checked{% endif %}
+                 onchange="saveAI()" class="w-4 h-4 text-gray-900">
+          <span class="text-sm font-medium text-gray-900">自定义 AI</span>
+        </div>
+        <p class="text-xs text-gray-500 mt-1.5 leading-relaxed">
+          用自己的服务商 Key，不扣平台次数。费用直接由服务商向你收取。
+        </p>
+      </label>
+    </div>
   </div>
-  {% endif %}
 
-  {# 兑换码余额：不想去申请服务商 Key 的用户走这条路 #}
-  <div class="mb-4 px-4 py-3 rounded-lg bg-gray-50 border border-gray-200">
+  {# 平台模式：兑换余额 + 兑换入口 #}
+  <div id="platform-section" class="mb-4 px-4 py-3 rounded-lg bg-gray-50 border border-gray-200"
+       {% if current_user.ai_mode != 'platform' %}style="display:none"{% endif %}>
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div>
         <p class="text-sm text-gray-900">
           兑换次数余额：<span class="font-medium" id="ai-credits">{{ ai_credits }}</span> 次
         </p>
         <p class="text-xs text-gray-500 mt-1 leading-relaxed">
-          没有自己的 Key 时，用兑换码换平台内置 AI 的摘要次数；不过期、可累加。
-          {%- if current_user.has_own_ai_key %}
-          你已经配了自己的 Key，余额不会被消耗。
-          {%- endif %}
+          平台 AI 每生成一篇扣 1 次；不过期、可累加。
         </p>
       </div>
       <a href="/web/redeem"
@@ -112,12 +130,14 @@
     </div>
   </div>
 
-  <div class="space-y-3" id="ai-fields">
+  {# 自定义模式：服务商 + 模型 + Key；平台模式下隐藏但保留，切回来不用重填 #}
+  <div class="space-y-3" id="ai-fields"
+       {% if current_user.ai_mode != 'custom' %}style="display:none"{% endif %}>
     <div>
       <label class="block text-sm text-gray-700 mb-1.5">模型服务商</label>
       <select id="ai-provider" onchange="saveAI()"
               class="w-full px-3 py-2 rounded border border-gray-300 bg-white">
-        <option value="">使用平台默认</option>
+        <option value="">使用平台默认服务商</option>
         {% for p in providers %}
         <option value="{{ p }}" {% if current_user.ai_provider == p %}selected{% endif %}>
           {{ provider_names.get(p, p) }}
@@ -136,14 +156,11 @@
     <div>
       <label class="block text-sm text-gray-700 mb-1.5">API Key<span class="text-red-500"> *</span></label>
       <input id="ai-key" type="password" value=""
+             onchange="saveAI()"
              placeholder="{{ '已配置（留空表示不修改）' if current_user.has_own_ai_key else '必填：粘贴你从服务商拿到的 Key' }}"
              class="w-full px-3 py-2 rounded border border-gray-300 focus:border-gray-900 focus:outline-none font-mono text-xs">
       <p class="mt-1 text-xs text-gray-400">
-        {% if current_user.has_own_ai_key %}
-          当前使用你自己的 Key，不受平台额度限制。Key 只保存在你自己的账号里。
-        {% else %}
-          必填。没有 Key 就无法生成摘要——平台不提供免费额度。
-        {% endif %}
+       自定义模式下必填。Key 只保存在你自己的账号里，不扣平台兑换次数。
       </p>
     </div>
   </div>
@@ -365,12 +382,34 @@ async function changePassword(ev) {
   }
 }
 
+function currentAiMode() {
+  const el = document.querySelector('input[name="ai-mode"]:checked');
+  return el ? el.value : 'platform';
+}
+
+function applyAiModeUI(mode) {
+  const platform = document.getElementById('platform-section');
+  const custom = document.getElementById('ai-fields');
+  const isPlatform = mode === 'platform';
+  if (platform) platform.style.display = isPlatform ? '' : 'none';
+  if (custom) custom.style.display = isPlatform ? 'none' : '';
+  const pL = document.getElementById('mode-platform-label');
+  const cL = document.getElementById('mode-custom-label');
+  if (pL) pL.className = 'cursor-pointer rounded-lg border p-3 transition-colors ' +
+    (isPlatform ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-400');
+  if (cL) cL.className = 'cursor-pointer rounded-lg border p-3 transition-colors ' +
+    (isPlatform ? 'border-gray-200 hover:border-gray-400' : 'border-gray-900 bg-gray-50');
+}
+
 let aiTimer;
 async function saveAI() {
+  const mode = currentAiMode();
+  applyAiModeUI(mode);
   clearTimeout(aiTimer);
   aiTimer = setTimeout(async () => {
     const keyInput = document.getElementById('ai-key');
     const body = {
+      ai_mode: mode,
       ai_enabled: document.getElementById('ai-enabled').checked,
       ai_provider: document.getElementById('ai-provider').value || null,
       ai_model: document.getElementById('ai-model').value || null,
@@ -379,7 +418,7 @@ async function saveAI() {
     if (keyInput.value) body.ai_api_key = keyInput.value;
     try {
       await api('/api/users/me', { method: 'PATCH', body: JSON.stringify(body) });
-      showToast('设置已保存');
+      showToast(mode === 'platform' ? '已切换到平台 AI（按次数计费）' : '已切换到自定义 AI');
       if (keyInput.value) keyInput.value = '';
     } catch (e) { showToast(e.message, false); }
   }, 500);

@@ -24,6 +24,7 @@ class PasswordChange(BaseModel):
 
 
 class UserSettingsUpdate(BaseModel):
+    ai_mode: str | None = None
     ai_enabled: bool | None = None
     ai_provider: str | None = None
     ai_model: str | None = None
@@ -47,6 +48,15 @@ async def update_settings(
     db: DbSession,
 ) -> dict:
     data = payload.model_dump(exclude_unset=True)
+
+    # AI 模式取值白名单。非法值会让下面的判定全部落空，生成直接失败。
+    if "ai_mode" in data and data["ai_mode"] is not None:
+        from app.models.user import AI_MODES
+
+        if data["ai_mode"] not in AI_MODES:
+            raise HTTPException(status_code=400, detail="AI 模式无效，只能是 platform 或 custom")
+        # 允许先切到 custom 再慢慢填 Key：此时生成会给出明确提示。
+        # 不在保存时硬拦——前端是自动保存，硬拦会让用户点一下就弹错误。
 
     # 额度与并发必须为正数，否则会导致抓取任务永远排不上队
     if "max_concurrent_override" in data and data["max_concurrent_override"] is not None:
@@ -85,6 +95,7 @@ async def update_settings(
     await db.flush()
     return {
         "ok": True,
+        "ai_mode": user.ai_mode,
         "ai_enabled": user.ai_enabled,
         "ai_provider": user.ai_provider,
         "has_own_ai_key": user.has_own_ai_key,

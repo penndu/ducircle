@@ -17,6 +17,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
+# AI 摘要模式。两个值都要落库，不用 NULL 表示「自动」——
+# 迁移 0013 已按「存量是否自带 Key」回填，语义明确、前端也不用猜。
+AI_MODE_PLATFORM = "platform"  # 平台内置 AI，扣每日额度/兑换次数
+AI_MODE_CUSTOM = "custom"  # 用户自带 Key，不扣平台任何额度
+AI_MODES = (AI_MODE_PLATFORM, AI_MODE_CUSTOM)
+
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -76,7 +82,17 @@ class User(Base, TimestampMixin):
     # 独立的管理操作日志承担（见 2.1.0），这里只做快速定位。
     last_login_ip: Mapped[str | None] = mapped_column(String(64), default=None)
 
-    # AI 摘要配置：用户可自带 Key 以摆脱平台额度限制
+    # AI 摘要配置：用户可选「平台 AI（扣次数）」或「自定义 AI（自带 Key）」
+    #
+    # 为什么显式加 mode 而不是「有 Key 就用 Key」：
+    # 之前一旦填过 Key 就再也用不了平台额度，用户想临时改扣次数只能先删 Key——
+    # 而删 Key 又意味着下次自定义模式要重新粘贴。两个用途该分开存。
+    # 迁移 0013 按存量是否有 Key 回填：有 Key→custom，无 Key→platform，
+    # 这样一来升级前后行为完全一致。
+    ai_mode: Mapped[str] = mapped_column(
+        String(16), default=AI_MODE_PLATFORM, nullable=False,
+        server_default=AI_MODE_PLATFORM,
+    )
     ai_provider: Mapped[str | None] = mapped_column(String(32), default=None)
     ai_api_key: Mapped[str | None] = mapped_column(String(256), default=None)
     ai_model: Mapped[str | None] = mapped_column(String(128), default=None)
@@ -123,6 +139,16 @@ class User(Base, TimestampMixin):
     sites: Mapped[list["Site"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan"
     )
+
+    @property
+    def uses_platform_ai(self) -> bool:
+        """本次生成走平台 AI（扣额度/兑换次数）。"""
+        return self.ai_mode == AI_MODE_PLATFORM
+
+    @property
+    def uses_custom_ai(self) -> bool:
+        """本次生成走用户自带 Key（不扣平台额度）。"""
+        return self.ai_mode == AI_MODE_CUSTOM
 
     @property
     def has_own_ai_key(self) -> bool:

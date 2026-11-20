@@ -52,6 +52,7 @@ async def _ai_state(user: User, db) -> dict:
     state = await quota_state(user, db)
     return {
         "enabled": settings.ai_enabled and user.ai_enabled,
+        "ai_mode": user.ai_mode,
         "has_own_key": user.has_own_ai_key,
         # daily_limit / used 是平台的每日免费额度，credits 是兑换来的余额。
         # 三个数字分开给，用户才看得懂「我的次数是从哪来的」。
@@ -59,13 +60,16 @@ async def _ai_state(user: User, db) -> dict:
         "used": state.used_today,
         "remaining": state.remaining,
         "credits": state.credits,
-        # 既没 Key 也没余额 —— 概览页据此引导「填 Key 或兑换码」
+        # 当前模式下缺配置：custom 缺 Key / platform 既无额度也无余额
         "key_required": (
-            not user.has_own_ai_key
-            and state.daily_limit <= 0
-            and state.credits <= 0
-            and user.ai_enabled
-        ),
+            (user.uses_custom_ai and not user.has_own_ai_key)
+            or (
+                user.uses_platform_ai
+                and state.daily_limit <= 0
+                and state.credits <= 0
+            )
+        )
+        and user.ai_enabled,
     }
 
 

@@ -19,11 +19,13 @@ router = APIRouter(prefix="/api/ai", tags=["AI 摘要"])
 
 class QuotaOut(BaseModel):
     enabled: bool
+    ai_mode: str
     has_own_key: bool
     used_today: int
     daily_limit: int
     remaining: int | None
-    # 平台不提供免费额度、用户也没兑过码时为 True —— 前端据此提示「去填 Key / 去兑换」
+    # 当前模式下缺少生成所需配置：
+    # custom 模式缺 Key，或 platform 模式既没额度也没兑换余额。
     key_required: bool = False
     # 兑换码换来的剩余次数
     credits: int = 0
@@ -66,16 +68,20 @@ async def my_quota(user: CurrentUserSession, db: DbSession) -> QuotaOut:
 
     return QuotaOut(
         enabled=settings.ai_enabled and user.ai_enabled,
+        ai_mode=user.ai_mode,
         has_own_key=user.has_own_ai_key,
         used_today=state.used_today,
         daily_limit=state.daily_limit,
         remaining=state.remaining,
         key_required=(
-            not user.has_own_ai_key
-            and state.daily_limit <= 0
-            and state.credits <= 0
-            and user.ai_enabled
-        ),
+            (user.uses_custom_ai and not user.has_own_ai_key)
+            or (
+                user.uses_platform_ai
+                and state.daily_limit <= 0
+                and state.credits <= 0
+            )
+        )
+        and user.ai_enabled,
         credits=state.credits,
     )
 

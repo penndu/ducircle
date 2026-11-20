@@ -7,6 +7,22 @@
 
 ---
 
+## [2.3.0] - 2026-11-20
+
+### 新增
+
+- AI 摘要可选「平台 AI」或「自定义 AI」：
+  - **平台 AI**：用平台内置模型，按次数计费（兑换余额 / 每日额度）；即使库里存过 Key 也不会用
+  - **自定义 AI**：用自己填的服务商、模型、Key，不扣平台次数
+  - 设置页一键切换，两种模式的配置各自保留，切回来不用重填
+- 迁移 0013 按存量是否自带 Key 回填：有 Key→custom，无 Key→platform，升级前后行为不变。
+
+### 修复
+
+- 自定义模式没填 Key 时明确提示去填，不再静默回落到平台额度（否则会偷偷扣钱）。
+
+---
+
 ## [2.2.2] - 2026-11-20
 
 ### 修复
@@ -317,6 +333,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[2.3.0]: https://github.com/penndu/ducircle/releases/tag/v2.3.0
 [2.2.2]: https://github.com/penndu/ducircle/releases/tag/v2.2.2
 [2.2.1]: https://github.com/penndu/ducircle/releases/tag/v2.2.1
 [2.0.1]: https://github.com/penndu/ducircle/releases/tag/v2.0.1

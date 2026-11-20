@@ -117,9 +117,14 @@ class QuotaState:
 async def quota_state(user: User, db) -> QuotaState:
     """判定这次生成能用哪一桶额度。
 
-    优先级：**自带 Key > 每日免费额度 > 兑换余额**。
+    先按 ``ai_mode`` 分流：
 
-    免费额度排在付费余额前面，是因为免费额度当天不用就作废，
+    - ``custom``：用户自带 Key → ``own_key``（不扣平台）。
+      选了自定义却没填 Key → ``none``，提示去填，绝不能悄悄改用平台额度。
+    - ``platform``：走平台预算——每日免费额度 → 兑换余额。
+      即使库里存着 Key 也**不用**，否则「选平台扣次数」就是空话。
+
+    免费额度排在兑换余额前面，是因为免费额度当天不用就作废，
     而余额永远在——先花会过期的那个，对用户最有利。
     """
     settings = get_settings()
@@ -128,9 +133,13 @@ async def quota_state(user: User, db) -> QuotaState:
 
     if not user.ai_enabled:
         return QuotaState("none", 0, limit, credits)
-    if user.has_own_ai_key:
-        return QuotaState("own_key", 0, limit, credits)
 
+    if user.uses_custom_ai:
+        if user.has_own_ai_key:
+            return QuotaState("own_key", 0, limit, credits)
+        return QuotaState("none", 0, limit, credits)
+
+    # platform 模式：只看平台那两桶，不碰自带 Key
     # 只数「免费额度」那一桶：带 from_user_key 的是用户自己花的钱，
     # 带 from_credit 的是用户买来的余额，都不能算进平台白送的额度。
     used = (
@@ -196,16 +205,18 @@ async def _log_usage(
 
 
 def _build_client(user: User, settings) -> tuple[LLMClient, str]:
-    """构造客户端并标记是否消耗平台额度。"""
-    if user.has_own_ai_key:
+    """按 ai_mode 构造客户端——与 quota_state 的分流必须一致。"""
+    if user.uses_custom_ai and user.has_own_ai_key:
+        provider = user.ai_provider or settings.ai_platform_provider
         return (
             LLMClient(
-                provider=user.ai_provider or settings.ai_platform_provider,
+                provider=provider,
                 api_key=user.ai_api_key,
                 model=user.ai_model,
             ),
-            user.ai_provider or settings.ai_platform_provider,
+            provider,
         )
+    # platform 模式（或 custom 但没 Key 的兜底）：用平台内置配置
     return (
         LLMClient(
             provider=settings.ai_platform_provider,
@@ -264,11 +275,17 @@ async def summarize_post(
     # state 后面还要用来判断「这次从哪一桶扣」，所以整体留着而不是只取 allowed
     state = await quota_state(user, db)
     if not state.allowed:
-        if state.daily_limit <= 0:
-            # 平台不提供免费额度时，两条路：填自己的 Key，或兑一张码
+        if user.uses_custom_ai and not user.has_own_ai_key:
             raise AIKeyRequired(
-                "生成摘要需要你自己的 API Key，或用兑换码兑换平台内置 AI 的摘要次数。"
-                "到「设置 → AI 摘要」填写或兑换，填完立即生效。"
+                "你用的是自定义 AI 模式，但还没填 API Key。"
+                "到「设置 → AI 摘要 → 自定义 AI」填写服务商 Key；"
+                "想改用平台 AI（扣兑换次数）就在同一处切换模式。"
+            )
+        if state.daily_limit <= 0:
+            # 平台模式、无免费额度也无兑换余额
+            raise AIKeyRequired(
+                "平台 AI 次数不够了：用兑换码兑换次数，"
+                "或到「设置 → AI 摘要」切换到自定义 AI 并填自己的 Key。"
             )
         raise QuotaExceeded(
             f"今日额度已用完（{state.used_today}/{state.daily_limit}）"
@@ -333,7 +350,7 @@ async def summarize_post(
         post=post,
         provider=provider,
         model=client.model,
-        from_user_key=user.has_own_ai_key,
+        from_user_key=state.source == "own_key",
         from_credit=from_credit,
     )
 

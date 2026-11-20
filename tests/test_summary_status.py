@@ -66,7 +66,12 @@ async def _give_ai_key(client, user_id: int, key: str = "sk-test-key") -> None:
         await db.execute(
             update(User)
             .where(User.id == user_id)
-            .values(ai_api_key=key, ai_provider="minimax_cn", ai_model="test-model")
+            .values(
+                ai_api_key=key,
+                ai_provider="minimax_cn",
+                ai_model="test-model",
+                ai_mode="custom",
+            )
         )
         await db.commit()
 

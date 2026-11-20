@@ -203,7 +203,9 @@ class TestSummaryFailedMarker:
         factory = async_sessionmaker(engine, expire_on_commit=False)
 
         async with factory() as db:
-            user = User(username="u1", password_hash="x", ai_api_key="k")
+            user = User(
+                username="u1", password_hash="x", ai_api_key="k", ai_mode="custom"
+            )
             db.add(user)
             await db.flush()
             site = Site(user_id=user.id, name="s", url="https://x.com", url_hash="h")
@@ -257,7 +259,9 @@ class TestSummaryFailedMarker:
         factory = async_sessionmaker(engine, expire_on_commit=False)
 
         async with factory() as db:
-            user = User(username="u2", password_hash="x", ai_api_key="bad-key")
+            user = User(
+                username="u2", password_hash="x", ai_api_key="bad-key", ai_mode="custom"
+            )
             db.add(user)
             await db.flush()
             site = Site(user_id=user.id, name="s", url="https://x.com", url_hash="h2")

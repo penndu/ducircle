@@ -86,11 +86,14 @@ class TestSettingsPageCopy:
     async def test_settings_requires_own_key(self, client):
         await _register(client)
         html = (await client.get("/web/settings")).text
-        assert "需要你自己的 API Key" in html
-        assert "平台不再提供免费摘要额度" in html
+        # 新用户默认平台模式：给出「平台 AI / 自定义 AI」两种选择，
+        # 并明确自定义模式需要填自己的 Key
+        assert "平台 AI" in html
+        assert "自定义 AI" in html
+        assert "兑换次数余额" in html
+        assert "必填：粘贴你从服务商拿到的 Key" in html
         # 不该再出现「留空则用平台额度」这种旧文案
         assert "留空则用平台额度" not in html
-        assert "当前使用平台额度" not in html
 
     @pytest.mark.asyncio
     async def test_settings_shows_platform_default_cron(self, client):
@@ -130,8 +133,8 @@ class TestDashboardCopy:
     async def test_dashboard_guides_to_fill_key(self, client):
         await _register(client)
         html = (await client.get("/web")).text
-        assert "平台不提供免费摘要额度" in html
-        assert "去填写 API Key" in html
+        assert "平台 AI 次数不够了" in html
+        assert "去设置" in html
         assert "/web/settings" in html
 
     @pytest.mark.asyncio

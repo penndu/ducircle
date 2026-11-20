@@ -456,6 +456,8 @@ async def _seed_post(factory, *, own_key: str | None, credits: int):
             password_hash="x",
             ai_api_key=own_key,
             ai_summary_credits=credits,
+            # 自带 Key 的测试场景显式走自定义模式；平台模式即使存了 Key 也不该用
+            ai_mode="custom" if own_key else "platform",
         )
         db.add(user)
         await db.flush()

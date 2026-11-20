@@ -371,16 +371,20 @@
       <section class="ds-card">
         <div class="ds-card-head">
           <h2 class="ds-card-title">AI 摘要</h2>
-          {% if ai.has_own_key %}<span class="ds-badge">自有 Key</span>
+          {% if ai.ai_mode == 'custom' %}<span class="ds-badge">自定义 AI</span>
           {% elif ai.remaining is not none %}<span class="ds-badge">剩 {{ ai.remaining }} 次</span>{% endif %}
         </div>
-        {% if not ai.has_own_key and ai.key_required %}
-        {# 平台不提供免费额度、也没兑过码：卡片直接说清两条路并给出入口 #}
+        {% if ai.key_required %}
+        {# 当前模式缺配置：custom 缺 Key / platform 没额度也没余额 #}
         <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
-          平台不提供免费摘要额度。填一个你自己的 API Key 就能用，
-          费用由服务商直接向你收取；或者用兑换码换平台内置 AI 的次数。
+          {% if ai.ai_mode == 'custom' %}
+          你选了自定义 AI，但还没填服务商 API Key。到设置页填上即可生成；
+          想改用平台 AI（扣兑换次数）也能在同一处切换。
+          {% else %}
+          平台 AI 次数不够了。用兑换码换次数，或到设置页切换到自定义 AI 填自己的 Key。
+          {% endif %}
         </p>
-        <a class="ds-btn ds-btn-primary ds-btn-sm" style="width:100%" href="/web/settings">去填写 API Key</a>
+        <a class="ds-btn ds-btn-primary ds-btn-sm" style="width:100%" href="/web/settings">去设置</a>
         <a class="ds-btn ds-btn-ghost ds-btn-sm" style="width:100%;margin-top:8px" href="/web/redeem">用兑换码兑换次数</a>
         {% else %}
         <p style="font-size:12.5px;color:var(--ds-muted);margin:0 0 12px;line-height:1.75">
@@ -389,7 +393,7 @@
         <div class="ds-track" style="margin-top:0"><i style="width:{{ summary_rate }}%"></i></div>
         <p style="font-size:11.5px;color:var(--ds-faint);margin:8px 0 14px">
           已完成 {{ stats.posts.summarized }} / {{ stats.posts.total }} 篇
-          {%- if ai.credits and not ai.has_own_key %}
+          {%- if ai.credits and ai.ai_mode == 'platform' %}
           <span class="mx-1">·</span>兑换余额 {{ ai.credits }} 次
           <a href="/web/redeem" style="color:var(--ds-brand)">兑换</a>
           {%- endif %}
