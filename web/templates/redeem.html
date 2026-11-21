@@ -3,7 +3,7 @@
 {% block title %}兑换 AI 次数 · {{ app_name }}{% endblock %}
 
 {% block page %}
-<div class="max-w-[900px]">
+{# 宽屏两列：左列放兑换主流程（余额→兑换→档位），右列放说明与记录。窄屏回落单列，顺序不变。 #}
 <div class="flex items-start justify-between gap-4 mb-6">
   <div>
     <h1 class="text-xl font-medium">兑换 AI 摘要次数</h1>
@@ -13,6 +13,8 @@
   </div>
 </div>
 
+<div class="settings-grid">
+<div class="settings-col">
 {# ---- 余额 ---- #}
 <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
   <div class="flex flex-wrap items-end justify-between gap-4">
@@ -85,7 +87,9 @@
   </div>
   {% endif %}
 </div>
+</div>{# /settings-col 左 #}
 
+<div class="settings-col">
 {# ---- 怎么用 ---- #}
 <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
   <h2 class="font-medium mb-1">次数怎么用</h2>
@@ -131,7 +135,8 @@
   <p class="text-sm text-gray-400 mt-3">还没有兑换过。拿到兑换码后在上面输入即可。</p>
   {% endif %}
 </div>
-</div>
+</div>{# /settings-col 右 #}
+</div>{# /settings-grid #}
 {% endblock %}
 
 {% block page_scripts %}

@@ -97,6 +97,26 @@ class TestBackendLayout:
         # 旧的单列限宽类已移除，别留下两套冲突样式
         assert ".form-narrow" not in base
 
+    def test_redeem_page_uses_two_columns(self):
+        """兑换次数页宽屏两列：左=余额+兑换+档位，右=次数说明+兑换记录。
+
+        单列 900px 限宽在宽屏下右侧留白，与设置页同款问题，一并按
+        settings-grid 改。窄屏仍回落单列，DOM 顺序不变。
+        """
+        import re
+        from pathlib import Path
+
+        html = Path("web/templates/redeem.html").read_text(encoding="utf-8")
+        assert "settings-grid" in html
+        assert html.count('class="settings-col"') == 2, "兑换页应恰好有两列"
+        assert "/settings-col 左" in html and "/settings-col 右" in html
+        # 单列限宽的外层容器已撤掉
+        classes = " ".join(re.findall(r'class="([^"]*)"', html))
+        assert "max-w-[900px]" not in classes
+        # 五块内容一块不丢
+        for title in ("可用摘要次数", "输入兑换码", "兑换码档位", "次数怎么用", "我的兑换记录"):
+            assert title in html, f"兑换页缺少「{title}」"
+
     @pytest.mark.asyncio
     async def test_dashboard_uses_two_column_main_grid(self, client):
         await _register(client)
