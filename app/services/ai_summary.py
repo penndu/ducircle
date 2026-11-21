@@ -29,6 +29,7 @@ from app.core.config import get_settings
 from app.core.tenant import as_tenant_async
 from app.db import session_scope
 from app.models import AIQuotaLog, Post, Site, User
+from app.models.user import SUMMARY_MODE_AUTO
 from app.services.extractor import (
     content_hash,
     extract_content,
@@ -412,10 +413,14 @@ async def _fetch_and_extract(link: str, site_url: str | None) -> str | None:
         return None
 
 
-async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
+async def summarize_pending_for_user(
+    user_id: int, limit: int = 20, post_ids: list[int] | None = None
+) -> dict:
     """为某用户批量生成待处理文章的摘要。
 
-    优先级：没摘要的优先、正文可能更新的其次。
+    ``post_ids`` 非空时只处理用户勾选的这几篇（文章页手动批量）；
+    为空时维持原来的行为——按时间倒序挑最一批待摘要文章。
+    两条路共用后面的生成与计费逻辑，不让「手动」和「自动」实现漂移。
 
     过程中会把进度写进 Redis（summary_status），
     前端轮询这个状态就能看到「跑到第几篇、失败没、为什么失败」——
@@ -427,7 +432,7 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
     await set_status(
         user_id,
         {"state": "running", "generated": 0, "skipped": 0,
-         "total": limit, "error": None},
+         "total": len(post_ids) if post_ids else limit, "error": None},
     )
 
     async with session_scope() as db, as_tenant_async(user_id):
@@ -440,20 +445,21 @@ async def summarize_pending_for_user(user_id: int, limit: int = 20) -> dict:
             )
             return results
 
+        stmt = select(Post).where(Post.deleted_at.is_(None))
+        if post_ids:
+            # 手动勾选：只跑这几篇，顺序仍按文章时间走。
+            # 已删除的会被租户过滤和这里一起挡掉。
+            stmt = stmt.where(Post.id.in_(post_ids)).limit(len(post_ids))
+        else:
+            stmt = stmt.where(
+                Post.summary.is_(None),
+                Post.summary_edited.is_(False),
+                # 永久失败的文章不再重试（模型内容安全拦截等），
+                # 否则每轮批量生成都会重新选中它，白费额度
+                Post.summary_failed.is_(False),
+            ).limit(limit)
         posts = (
-            await db.execute(
-                select(Post)
-                .where(
-                    Post.summary.is_(None),
-                    Post.summary_edited.is_(False),
-                    Post.deleted_at.is_(None),
-                    # 永久失败的文章不再重试（模型内容安全拦截等），
-                    # 否则每轮批量生成都会重新选中它，白费额度
-                    Post.summary_failed.is_(False),
-                )
-                .order_by(desc_nulls_last(Post.created))
-                .limit(limit)
-            )
+            await db.execute(stmt.order_by(desc_nulls_last(Post.created)))
         ).scalars().all()
 
         if not posts:
@@ -527,8 +533,14 @@ async def summarize_all_pending(limit_per_user: int = 10) -> dict:
         }
 
     async with session_scope() as db, no_tenant_filter_async():
+        # 手动模式的用户不能被定时任务扫到——否则「手动摘要」就是空话。
         users = (
-            await db.execute(select(User.id).where(User.is_active.is_(True)))
+            await db.execute(
+                select(User.id).where(
+                    User.is_active.is_(True),
+                    User.summary_mode == SUMMARY_MODE_AUTO,
+                )
+            )
         ).scalars().all()
 
     total_generated = 0

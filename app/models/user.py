@@ -23,6 +23,12 @@ AI_MODE_PLATFORM = "platform"  # 平台内置 AI，扣每日额度/兑换次数
 AI_MODE_CUSTOM = "custom"  # 用户自带 Key，不扣平台任何额度
 AI_MODES = (AI_MODE_PLATFORM, AI_MODE_CUSTOM)
 
+# 摘要触发方式。和上面的「用哪家的模型」是两个正交的维度：
+# ai_mode 决定谁付钱，summary_mode 决定什么时候生成。
+SUMMARY_MODE_AUTO = "auto"  # 定时任务自动生成（升级前的行为）
+SUMMARY_MODE_MANUAL = "manual"  # 只由用户在文章页手动触发
+SUMMARY_MODES = (SUMMARY_MODE_AUTO, SUMMARY_MODE_MANUAL)
+
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
@@ -97,6 +103,12 @@ class User(Base, TimestampMixin):
     ai_api_key: Mapped[str | None] = mapped_column(String(256), default=None)
     ai_model: Mapped[str | None] = mapped_column(String(128), default=None)
     ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 自动摘要（默认）还是手动摘要。手动模式下定时任务跳过该用户，
+    # 只有文章页的手动操作会生成——用户想自己挑文章时用。
+    summary_mode: Mapped[str] = mapped_column(
+        String(16), default=SUMMARY_MODE_AUTO, nullable=False,
+        server_default=SUMMARY_MODE_AUTO,
+    )
     ai_daily_quota_override: Mapped[int | None] = mapped_column(
         Integer, default=None, comment="为空则用平台默认值"
     )
@@ -153,6 +165,11 @@ class User(Base, TimestampMixin):
     @property
     def has_own_ai_key(self) -> bool:
         return bool(self.ai_api_key)
+
+    @property
+    def uses_auto_summary(self) -> bool:
+        """是否允许定时任务自动生成摘要。"""
+        return self.summary_mode == SUMMARY_MODE_AUTO
 
     @property
     def has_ai_credit(self) -> bool:

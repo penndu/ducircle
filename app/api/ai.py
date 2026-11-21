@@ -52,6 +52,25 @@ class SummarizeResultOut(BaseModel):
     reason: str | None = None
 
 
+class SelectedBatchIn(BaseModel):
+    # 文章页勾选的 IDs。上限和后台任务一次能跑的量保持一致，
+    # 防止一次塞几千篇把后台任务拖死。
+    post_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+def _reject_without_quota(state) -> None:
+    """手动生成前的统一拦截：没 Key 也没余额就别说「已开始」。"""
+    if state.allowed:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "生成摘要需要你自己的 API Key，或用兑换码兑换平台内置 AI 的摘要次数。"
+            "到「设置 → AI 摘要」填写或兑换，填完立即生效。"
+        ),
+    )
+
+
 @router.get("/quota", response_model=QuotaOut, summary="我的 AI 额度")
 async def my_quota(user: CurrentUserSession, db: DbSession) -> QuotaOut:
     """查询今天的可用情况。设置页与概览页展示这个。
@@ -220,17 +239,45 @@ async def batch_summarize(
     # 结果一篇都不处理，接口还返回 200 说「已开始」。
     # 两个值含义不同，名字必须分开。
     state = await quota_state(user, db)
-    if not state.allowed:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "生成摘要需要你自己的 API Key，或用兑换码兑换平台内置 AI 的摘要次数。"
-                "到「设置 → AI 摘要」填写或兑换，填完立即生效。"
-            ),
-        )
+    _reject_without_quota(state)
 
     background.add_task(summarize_pending_for_user, user.id, limit)
     return {"ok": True, "message": f"已开始为最多 {limit} 篇文章生成摘要"}
+
+
+@router.post(
+    "/posts/batch-summarize",
+    summary="批量生成勾选文章的摘要",
+)
+async def batch_summarize_selected(
+    payload: SelectedBatchIn,
+    user: CurrentUserSession,
+    db: DbSession,
+    background: BackgroundTasks = None,  # type: ignore[assignment]
+) -> dict:
+    """文章页勾选批量生成。和 ``/batch`` 的区别是**只跑选中的文章**。
+
+    手动摘要模式下，这是唯一的生成入口；自动模式下也允许用它补漏。
+    文章归属由租户过滤器保证——传别人的 ID 会当成「不存在」。
+    """
+    from app.services.ai_summary import quota_state, summarize_pending_for_user
+
+    ids = list(dict.fromkeys(payload.post_ids))
+    found = set(
+        (
+            await db.execute(
+                select(Post.id).where(
+                    Post.id.in_(ids), Post.deleted_at.is_(None)
+                )
+            )
+        ).scalars().all()
+    )
+    if len(found) != len(ids):
+        raise HTTPException(status_code=404, detail="部分文章不存在或已删除")
+
+    _reject_without_quota(await quota_state(user, db))
+    background.add_task(summarize_pending_for_user, user.id, len(ids), ids)
+    return {"ok": True, "message": f"已开始为 {len(ids)} 篇文章生成摘要"}
 
 
 @router.post("/posts/{post_id}/reset", summary="清除文章摘要")

@@ -9,10 +9,36 @@
 </div>
 
 {% if posts %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+  <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+    <input type="checkbox" id="pick-all" onchange="toggleAll(this)"
+           class="w-4 h-4 rounded border-gray-300 text-gray-900">
+    全选本页待摘要
+  </label>
+  <div class="flex items-center gap-3">
+    <span class="text-xs text-gray-400">
+      {% if current_user.summary_mode == 'manual' %}
+      手动模式：勾选后批量生成
+      {% else %}
+      自动任务也在跑，这里可补漏
+      {% endif %}
+    </span>
+    <button onclick="batchSummarize()" id="batch-btn" disabled
+            class="px-3 py-1.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed">
+      批量生成摘要 (0)
+    </button>
+  </div>
+</div>
+
 <ul class="list-grid">
   {% for post in posts %}
   <li class="bg-white rounded-lg border border-gray-200 p-4">
     <div class="flex gap-3">
+      {% if not post.summary %}
+      <input type="checkbox" class="summary-pick mt-2 shrink-0 w-4 h-4 rounded border-gray-300 text-gray-900"
+             value="{{ post.id }}" onchange="updateBatch()"
+             aria-label="选中这篇文章以批量生成摘要">
+      {% endif %}
       <div class="w-10 h-10 rounded shrink-0 bg-gray-100 overflow-hidden grid place-items-center">
         {% if post.avatar %}
         <img src="{{ post.avatar }}" alt="" loading="lazy" class="w-full h-full object-cover"
@@ -83,6 +109,76 @@
 {% endblock %}
 
 {% block page_scripts %}
+function pickedIds() {
+  return [...document.querySelectorAll('.summary-pick:checked')].map(el => Number(el.value));
+}
+
+function updateBatch() {
+  const btn = document.getElementById('batch-btn');
+  if (!btn) return;
+  const n = pickedIds().length;
+  btn.disabled = n === 0 || n > 50 || !!window._batchRunning;
+  btn.textContent = window._batchRunning ? '生成中…' : `批量生成摘要 (${n})`;
+}
+
+function toggleAll(el) {
+  document.querySelectorAll('.summary-pick').forEach(cb => { cb.checked = el.checked; });
+  updateBatch();
+}
+
+async function batchSummarize() {
+  const ids = pickedIds();
+  if (!ids.length) return showToast('先勾选要生成的文章', false);
+  if (ids.length > 50) return showToast('一次最多 50 篇', false);
+
+  const btn = document.getElementById('batch-btn');
+  window._batchRunning = true;
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    // 记下旧状态的时间戳：Redis 里可能留着上一次的 done，
+    // 不清掉的话刚点下去就会被当成「上一步已完成」直接刷新。
+    let before = {};
+    try { before = await api('/api/ai/batch-status'); } catch (e) { /* 状态服务不可用 */ }
+    await api('/api/ai/posts/batch-summarize', {
+      method: 'POST',
+      body: JSON.stringify({ post_ids: ids }),
+    });
+    showToast('已开始生成，跑完会自动刷新');
+    await pollBatchStatus(before.updated_at);
+  } catch (e) {
+    window._batchRunning = false;
+    updateBatch();
+    showToast(e.message, false);
+  }
+}
+
+async function pollBatchStatus(staleAt) {
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 2000));
+    let s;
+    try { s = await api('/api/ai/batch-status'); } catch (e) { continue; }
+    if (!s || s.state === 'idle' || s.updated_at === staleAt) continue;
+    if (s.state === 'running') {
+      const btn = document.getElementById('batch-btn');
+      if (btn) btn.textContent = `生成中… ${s.generated || 0}/${s.total || '?'}`;
+      continue;
+    }
+    window._batchRunning = false;
+    if (s.state === 'done') {
+      showToast(`完成：生成 ${s.generated} 篇，跳过 ${s.skipped} 篇`);
+    } else {
+      showToast(s.error || '生成失败，请看设置里的额度与 Key', false);
+    }
+    location.reload();
+    return;
+  }
+  window._batchRunning = false;
+  updateBatch();
+  showToast('耗时较长，请稍后刷新页面查看结果', false);
+}
+
 async function generateSummary(id, btn) {
   if (btn.disabled) return;
   const label = btn.textContent;

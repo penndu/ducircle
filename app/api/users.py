@@ -25,6 +25,7 @@ class PasswordChange(BaseModel):
 
 class UserSettingsUpdate(BaseModel):
     ai_mode: str | None = None
+    summary_mode: str | None = None
     ai_enabled: bool | None = None
     ai_provider: str | None = None
     ai_model: str | None = None
@@ -57,6 +58,13 @@ async def update_settings(
             raise HTTPException(status_code=400, detail="AI 模式无效，只能是 platform 或 custom")
         # 允许先切到 custom 再慢慢填 Key：此时生成会给出明确提示。
         # 不在保存时硬拦——前端是自动保存，硬拦会让用户点一下就弹错误。
+
+    # 摘要触发方式白名单。和 ai_mode 一样是显式选择，不猜。
+    if "summary_mode" in data and data["summary_mode"] is not None:
+        from app.models.user import SUMMARY_MODES
+
+        if data["summary_mode"] not in SUMMARY_MODES:
+            raise HTTPException(status_code=400, detail="摘要模式无效，只能是 auto 或 manual")
 
     # 额度与并发必须为正数，否则会导致抓取任务永远排不上队
     if "max_concurrent_override" in data and data["max_concurrent_override"] is not None:
@@ -96,6 +104,7 @@ async def update_settings(
     return {
         "ok": True,
         "ai_mode": user.ai_mode,
+        "summary_mode": user.summary_mode,
         "ai_enabled": user.ai_enabled,
         "ai_provider": user.ai_provider,
         "has_own_ai_key": user.has_own_ai_key,

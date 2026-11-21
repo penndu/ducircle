@@ -497,6 +497,27 @@ async def redeem_page(
 # ---- 平台管理 ----
 
 
+@router.get("/admin", include_in_schema=False)
+async def admin_home(
+    request: Request,
+    user: Annotated[User, Depends(require_page_admin)],
+    tab: str = Query(default="users", pattern="^(users|redeem)$"),
+) -> Response:
+    """管理员中心统一入口。
+
+    原来「用户管理」「兑换码管理」是两个并列的侧栏项，功能越加越散。
+    这里只做跳转，筛选参数原样带过去——查询和分页逻辑仍由各自的
+    页面路由负责，避免两处实现漂移。
+    """
+    from urllib.parse import parse_qsl, urlencode
+
+    target = "/web/admin/redeem" if tab == "redeem" else "/web/admin/users"
+    rest = [(k, v) for k, v in parse_qsl(request.url.query) if k != "tab"]
+    if rest:
+        target = f"{target}?{urlencode(rest)}"
+    return RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
 @router.get("/admin/users", include_in_schema=False)
 async def admin_users_page(
     request: Request,
@@ -543,6 +564,8 @@ async def admin_users_page(
         role=role,
         # 前端据此判断「这一行是不是自己」，自己的停用/降权按钮要禁用
         me_id=user.id,
+        # 管理员中心当前选中的 Tab
+        admin_tab="users",
     )
     return render(request, "admin_users.html", ctx)
 
@@ -608,6 +631,8 @@ async def admin_redeem_page(
         batch_id=batch_id,
         q=q or "",
         filter_qs=urlencode(filter_params),
+        # 管理员中心当前选中的 Tab
+        admin_tab="redeem",
     )
     return render(request, "admin_redeem.html", ctx)
 

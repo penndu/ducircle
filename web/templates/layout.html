@@ -16,24 +16,31 @@
     </div>
 
     <nav class="flex-1 px-3 py-4 space-y-0.5">
-      {% set links = [
-        ('/web', '概览', current_page == 'dashboard'),
-        ('/web/sites', '友链管理', current_page == 'sites'),
-        ('/web/posts', '文章流', current_page == 'posts'),
-        ('/web/link-pages', '友链页', current_page == 'link-pages'),
-        ('/web/failed', '抓取失败', current_page == 'failed'),
-        ('/web/redeem', '兑换次数', current_page == 'redeem'),
-        ('/web/settings', '设置', current_page == 'settings'),
+      {# 导航按用途分组。之前功能一个一个往上加，侧栏变成一长串，
+         「用户管理」「兑换码管理」混在个人设置旁边，很难找。 #}
+      {% set sections = [
+        ('工作台', [('/web', '概览', 'dashboard')]),
+        ('内容', [
+          ('/web/sites', '友链管理', 'sites'),
+          ('/web/posts', '文章流', 'posts'),
+          ('/web/link-pages', '友链页', 'link-pages'),
+          ('/web/failed', '抓取失败', 'failed'),
+        ]),
+        ('账号', [
+          ('/web/redeem', '兑换次数', 'redeem'),
+          ('/web/settings', '设置', 'settings'),
+        ]),
       ] %}
       {# 管理员入口只对管理员显示。但「不显示」不是安全措施——
-         页面路由自己还有 require_page_admin 兜底。 #}
+         页面路由自己还有 require_page_admin 兜底。
+         用户管理和兑换码管理收进同一个「管理员」入口。 #}
       {% if current_user and current_user.is_admin %}
-        {% set links = links + [
-          ('/web/admin/users', '用户管理', current_page == 'admin-users'),
-          ('/web/admin/redeem', '兑换码管理', current_page == 'admin-redeem'),
-        ] %}
+        {% set sections = sections + [('平台', [('/web/admin', '管理员', 'admin')])] %}
       {% endif %}
-      {% for href, label, active in links %}
+      {% for section, links in sections %}
+      <p class="px-3 pt-3 pb-1 text-xs text-gray-400">{{ section }}</p>
+      {% for href, label, page in links %}
+      {% set active = current_page == page or (page == 'admin' and current_page in ['admin-users', 'admin-redeem']) %}
       <a href="{{ href }}"
          {% if active %}style="background:var(--ds-brand);color:#fff"{% endif %}
          class="flex items-center justify-between px-3 py-2 rounded text-sm {% if active %}text-white{% else %}text-gray-700 hover:bg-gray-100{% endif %}">
@@ -44,6 +51,7 @@
           <span class="text-xs px-1.5 rounded bg-red-100 text-red-700">{{ counts.errors }}</span>
         {% endif %}
       </a>
+      {% endfor %}
       {% endfor %}
     </nav>
 
@@ -78,6 +86,9 @@
     ('/web/failed', '失败', current_page == 'failed'),
     ('/web/settings', '设置', current_page == 'settings'),
   ] %}
+  {% if current_user and current_user.is_admin %}
+    {% set tabs = tabs + [('/web/admin', '管理', current_page in ['admin-users', 'admin-redeem'])] %}
+  {% endif %}
   {% for href, label, active in tabs %}
   <a href="{{ href }}"
      {% if active %}style="color:var(--ds-brand)"{% endif %}

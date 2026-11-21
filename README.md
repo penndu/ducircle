@@ -1,12 +1,12 @@
 # 友链朋友圈 ducircle
 
-[![版本](https://img.shields.io/badge/version-v2.3.1-2563eb)](https://github.com/penndu/ducircle/releases/tag/v2.3.1)
+[![版本](https://img.shields.io/badge/version-v3.0.0-2563eb)](https://github.com/penndu/ducircle/releases/tag/v3.0.0)
 [![许可](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 面向博客主的公开友链聚合服务。自动发现友链的 RSS、
 自动识别博客框架，把好友的更新汇聚成一条时间流。
 
-线上：<https://ducircle.dusays.com> · 当前版本：**v2.3.1**
+线上：<https://ducircle.dusays.com> · 当前版本：**v3.0.0**
 
 ---
 
@@ -33,9 +33,13 @@
   任何域名都能在浏览器里直接调 `/v1/*`，博客换域名不用改后台配置。
   安全性由 API Key 保证：`/v1/*` 只读、不依赖 Cookie；
   后台 `/api/*` 与 `/web/*` 仍然不开放跨域。
-- **管理员用户管理页** —— `/web/admin/users`：
-  全站总览、搜索筛选、启用/禁用、改角色、重置密码、删除账号（连同其数据）。
-  普通用户访问管理接口一律 403，不靠前端隐藏入口。
+- **管理员中心** —— `/web/admin`：用户管理与兑换码管理放在同一页，
+  用 Tab 切换；侧边栏按用途分组。旧地址 `/web/admin/users`、`/web/admin/redeem` 仍可用。
+  管理员可全站总览、搜索筛选、启用/禁用、改角色、重置密码、删除账号（连同其数据），
+  以及生成/作废兑换码。普通用户访问管理接口一律 403，不靠前端隐藏入口。
+- **摘要触发方式** —— 设置 → AI 摘要可选「自动」（默认，定时任务生成）或
+  「手动」（定时任务跳过）。手动模式下在文章页勾选待摘要文章批量生成，
+  支持全选本页、一次最多 50 篇，并展示进度。
 - **租户隔离依旧强制** —— 每个用户的友链、文章、日志按 `user_id` 在 ORM 层自动过滤，
   业务代码写不出越权查询。管理员要跨用户看数据时必须显式豁免，代码审查一眼可见。
 

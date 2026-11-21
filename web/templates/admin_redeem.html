@@ -1,17 +1,11 @@
-{% extends "layout.html" %}
+{% extends "admin.html" %}
 
-{% block title %}兑换码生成器 · {{ app_name }}{% endblock %}
+{% block title %}兑换码管理 · {{ app_name }}{% endblock %}
 
-{% block page %}
-<div class="flex items-start justify-between gap-4 mb-6">
-  <div>
-    <h1 class="text-xl font-medium">兑换码生成器</h1>
-    <p class="text-sm text-gray-500 mt-1">
-      批量生成兑换码发给用户。用户兑换后即可用平台内置 AI 生成摘要，次数从余额里扣。
-    </p>
-  </div>
-  <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 shrink-0">仅管理员可见</span>
-</div>
+{% block admin_content %}
+<p class="text-sm text-gray-500 mb-4">
+  兑换码生成器：批量生成兑换码发给用户。用户兑换后即可用平台内置 AI 生成摘要，次数从余额里扣。
+</p>
 
 {# ---- 生成器 ---- #}
 <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
@@ -218,7 +212,7 @@
 </div>
 {% endblock %}
 
-{% block page_scripts %}
+{% block admin_scripts %}
 async function generate(ev) {
   ev.preventDefault();
   const plan = document.getElementById('gen-plan').value;

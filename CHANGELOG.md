@@ -7,6 +7,28 @@
 
 ---
 
+## [3.0.0] - 2026-11-21
+
+### 新增
+
+- **管理员中心**：用户管理与兑换码管理收进同一个 `/web/admin` 入口，
+  用 Tab 切换；侧边栏按「工作台 / 内容 / 账号 / 平台」分组，不再是一长串并列项。
+  旧的 `/web/admin/users`、`/web/admin/redeem` 继续可用。
+- **摘要触发方式可选**：设置 → AI 摘要新增「自动摘要 / 手动摘要」。
+  - 自动（默认）：定时任务照旧生成，行为与升级前一致
+  - 手动：定时任务跳过该用户，只在文章页手动生成
+- **文章页批量摘要**：待摘要文章可勾选（支持全选本页），一次最多 50 篇；
+  后台任务带进度状态，跑完自动刷新页面。手动模式下这是主要生成入口，
+  自动模式下也可用来补漏。
+- 迁移 0014 把存量用户全部回填为 `auto`，升级不会突然停掉自动摘要。
+
+### 修复
+
+- 管理员中心统一入口只做带参数的跳转，不复制查询/分页逻辑，
+  避免页面与接口将来各改各的。
+
+---
+
 ## [2.3.1] - 2026-11-21
 
 ### 修复
@@ -345,6 +367,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[3.0.0]: https://github.com/penndu/ducircle/releases/tag/v3.0.0
 [2.3.1]: https://github.com/penndu/ducircle/releases/tag/v2.3.1
 [2.3.0]: https://github.com/penndu/ducircle/releases/tag/v2.3.0
 [2.2.2]: https://github.com/penndu/ducircle/releases/tag/v2.2.2
