@@ -74,12 +74,28 @@ class TestBackendLayout:
             html = Path(f"web/templates/{name}").read_text(encoding="utf-8")
             assert "list-grid" in html, f"{name} 没切到双列栅格"
 
-    def test_settings_page_stays_narrow(self):
-        """设置页是表单，宽度受限才不至于一行拉太长。"""
+    def test_settings_page_uses_two_columns(self):
+        """设置页宽屏两列：左列 AI 摘要+采集频率，右列 API Key+数据导出+账号。
+
+        卡片多且高低不一，单列堆到底页面太长。两列各自堆叠，
+        列内 flex 不强制等高，短卡下面也不会拉出空白。
+        """
+        import re
         from pathlib import Path
 
         html = Path("web/templates/settings.html").read_text(encoding="utf-8")
-        assert "form-narrow" in html
+        assert "settings-grid" in html
+        assert html.count('class="settings-col"') == 2, "设置页应恰好有两列"
+        # 分列标记要成对出现，缺一个就会 DOM 结构错位
+        assert "/settings-col 左" in html and "/settings-col 右" in html
+
+        base = Path("web/templates/base.html").read_text(encoding="utf-8")
+        # 宽屏两列、窄屏回落单列；列内用 flex 各自堆叠
+        assert re.search(r"\.settings-grid\s*\{[^}]*grid-template-columns:\s*1fr", base)
+        assert re.search(r"@media\s*\(min-width:\s*1100px\)[^}]*\.settings-grid[^}]*repeat\(2", base, re.S)
+        assert re.search(r"\.settings-col\s*\{[^}]*flex-direction:\s*column", base)
+        # 旧的单列限宽类已移除，别留下两套冲突样式
+        assert ".form-narrow" not in base
 
     @pytest.mark.asyncio
     async def test_dashboard_uses_two_column_main_grid(self, client):
