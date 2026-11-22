@@ -1,0 +1,206 @@
+{% extends "admin.html" %}
+{# 平台总览。所有数字来自 build_admin_overview，页面只负责排版。 #}
+
+{% block title %}总览 · {{ app_name }}{% endblock %}
+
+{% block admin_content %}
+{% set u = overview.users %}
+{% set s = overview.sites %}
+{% set p = overview.posts %}
+{% set a = overview.ai %}
+{% set r = overview.redeem %}
+{% set c = overview.crawl %}
+
+<p class="text-sm text-gray-500 mb-4">
+  全站数据，实时统计。生成于 {{ overview.generated_at | datetime }}
+</p>
+
+{# ---- 核心规模 ---- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-500">用户总数</p>
+    <p class="text-2xl font-medium mt-1">{{ u.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">活跃 {{ u.active }} · 管理员 {{ u.admin }}</p>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-500">友链总数</p>
+    <p class="text-2xl font-medium mt-1">{{ s.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">启用 {{ s.active }} · 异常 {{ s.error }}</p>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-500">文章总数</p>
+    <p class="text-2xl font-medium mt-1">{{ p.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">今日 +{{ p.today }} · 7 天 +{{ p.last_7d }}</p>
+  </div>
+  <div class="bg-white rounded-lg border border-gray-200 p-4">
+    <p class="text-xs text-gray-500">摘要生成</p>
+    <p class="text-2xl font-medium mt-1">{{ a.total }}</p>
+    <p class="text-xs text-gray-400 mt-1">今日 {{ a.today }} · 30 天 {{ a.last_30d }}</p>
+  </div>
+</div>
+
+<div class="settings-grid">
+<div class="settings-col">
+
+  {# ---- 用户 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <h2 class="font-medium mb-3">用户</h2>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">今日新增</p><p class="text-lg mt-0.5">{{ u.new_today }}</p></div>
+      <div><p class="text-xs text-gray-400">近 7 天新增</p><p class="text-lg mt-0.5">{{ u.new_7d }}</p></div>
+      <div><p class="text-xs text-gray-400">已添加友链</p><p class="text-lg mt-0.5">{{ u.with_sites }}</p></div>
+      <div><p class="text-xs text-gray-400">停用账号</p><p class="text-lg mt-0.5">{{ u.total - u.active }}</p></div>
+    </div>
+  </div>
+
+  {# ---- 友链 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <h2 class="font-medium mb-3">友链与发现</h2>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">启用</p><p class="text-lg mt-0.5">{{ s.active }}</p></div>
+      <div><p class="text-xs text-gray-400">暂停</p><p class="text-lg mt-0.5">{{ s.paused }}</p></div>
+      <div><p class="text-xs text-gray-400">异常站点</p><p class="text-lg mt-0.5">{{ s.error }}</p></div>
+      <div><p class="text-xs text-gray-400">友链页</p><p class="text-lg mt-0.5">{{ s.link_pages }} <span class="text-xs text-gray-400">(启用 {{ s.link_pages_active }})</span></p></div>
+    </div>
+  </div>
+
+  {# ---- 文章 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="font-medium">文章与摘要</h2>
+      <span class="text-xs text-gray-400">摘要覆盖率 {{ p.summary_rate }}%</span>
+    </div>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">已生成摘要</p><p class="text-lg mt-0.5">{{ p.summarized }}</p></div>
+      <div><p class="text-xs text-gray-400">待生成</p><p class="text-lg mt-0.5">{{ p.pending }}</p></div>
+      <div><p class="text-xs text-gray-400">摘要失败</p><p class="text-lg mt-0.5">{{ p.failed }}</p></div>
+      <div><p class="text-xs text-gray-400">人工修正</p><p class="text-lg mt-0.5">{{ p.edited }}</p></div>
+    </div>
+    <div class="mt-4">
+      <p class="text-xs text-gray-400 mb-2">近 14 天收录趋势</p>
+      {% set peak = p.trend_14d | map(attribute='count') | max or 1 %}
+      <div class="flex items-end gap-1 h-16">
+        {% for d in p.trend_14d %}
+        <div class="flex-1 flex flex-col justify-end items-center" title="{{ d.date }}：{{ d.count }} 篇">
+          <div style="height:{{ (d.count / peak * 100) | round | int }}%;min-height:2px"
+               class="w-full bg-green-600 rounded-t"></div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="flex justify-between text-xs text-gray-400 mt-1">
+        <span>{{ p.trend_14d[0].label }}</span><span>{{ p.trend_14d[-1].label }}</span>
+      </div>
+    </div>
+  </div>
+
+  {# ---- 抓取健康 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5">
+    <h2 class="font-medium mb-3">抓取健康</h2>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">7 天抓取次数</p><p class="text-lg mt-0.5">{{ c.total_7d }}</p></div>
+      <div><p class="text-xs text-gray-400">7 天失败</p><p class="text-lg mt-0.5">{{ c.failed_7d }}</p></div>
+      <div><p class="text-xs text-gray-400">今日抓取</p><p class="text-lg mt-0.5">{{ c.today }}</p></div>
+      <div><p class="text-xs text-gray-400">成功率</p><p class="text-lg mt-0.5">{{ c.success_rate }}%</p></div>
+    </div>
+  </div>
+
+</div>
+<div class="settings-col">
+
+  {# ---- AI 用量 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="font-medium">AI 摘要用量</h2>
+      <span class="text-xs text-gray-400">{{ a.active_users }} 个用户用过</span>
+    </div>
+    <div class="grid grid-cols-3 gap-3 text-sm mb-4">
+      <div><p class="text-xs text-gray-400">今日</p><p class="text-lg mt-0.5">{{ a.today }}</p></div>
+      <div><p class="text-xs text-gray-400">7 天</p><p class="text-lg mt-0.5">{{ a.last_7d }}</p></div>
+      <div><p class="text-xs text-gray-400">30 天</p><p class="text-lg mt-0.5">{{ a.last_30d }}</p></div>
+    </div>
+    <div class="border-t border-gray-100 pt-3 grid grid-cols-3 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">免费额度</p><p class="mt-0.5">{{ a.free }}</p></div>
+      <div><p class="text-xs text-gray-400">兑换次数</p><p class="mt-0.5">{{ a.from_credit }}</p></div>
+      <div><p class="text-xs text-gray-400">自带 Key</p><p class="mt-0.5">{{ a.own_key }}</p></div>
+    </div>
+    {% if a.models %}
+    <div class="border-t border-gray-100 pt-3 mt-3">
+      <p class="text-xs text-gray-400 mb-2">模型分布 TOP 8</p>
+      <div class="space-y-1.5">
+        {% set model_peak = a.models[0].count or 1 %}
+        {% for m in a.models %}
+        <div class="flex items-center gap-2 text-xs">
+          <span class="w-32 truncate text-gray-600" title="{{ m.model }}">{{ m.model }}</span>
+          <div class="flex-1 bg-gray-100 rounded h-2">
+            <div class="bg-blue-600 rounded h-2" style="width:{{ (m.count / model_peak * 100) | round | int }}%"></div>
+          </div>
+          <span class="w-8 text-right text-gray-500">{{ m.count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="mt-4">
+      <p class="text-xs text-gray-400 mb-2">近 14 天生成趋势</p>
+      {% set peak = a.trend_14d | map(attribute='count') | max or 1 %}
+      <div class="flex items-end gap-1 h-16">
+        {% for d in a.trend_14d %}
+        <div class="flex-1 flex flex-col justify-end items-center" title="{{ d.date }}：{{ d.count }} 次">
+          <div style="height:{{ (d.count / peak * 100) | round | int }}%;min-height:2px"
+               class="w-full bg-blue-600 rounded-t"></div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="flex justify-between text-xs text-gray-400 mt-1">
+        <span>{{ a.trend_14d[0].label }}</span><span>{{ a.trend_14d[-1].label }}</span>
+      </div>
+    </div>
+  </div>
+
+  {# ---- 兑换码 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <h2 class="font-medium mb-3">兑换码</h2>
+    <div class="grid grid-cols-3 gap-3 text-sm mb-3">
+      <div><p class="text-xs text-gray-400">生成总数</p><p class="text-lg mt-0.5">{{ r.codes_total }}</p></div>
+      <div><p class="text-xs text-gray-400">已使用</p><p class="text-lg mt-0.5">{{ r.used }}</p></div>
+      <div><p class="text-xs text-gray-400">今日兑换</p><p class="text-lg mt-0.5">{{ r.used_today }}</p></div>
+    </div>
+    <div class="border-t border-gray-100 pt-3 grid grid-cols-2 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">未用</p><p class="mt-0.5">{{ r.unused }}</p></div>
+      <div><p class="text-xs text-gray-400">作废</p><p class="mt-0.5">{{ r.revoked }}</p></div>
+      <div><p class="text-xs text-gray-400">批次数</p><p class="mt-0.5">{{ r.batches }}</p></div>
+      <div><p class="text-xs text-gray-400">面值合计</p><p class="mt-0.5">¥{{ r.face_value_yuan }}</p></div>
+    </div>
+    <div class="border-t border-gray-100 pt-3 mt-3 grid grid-cols-3 gap-3 text-sm">
+      <div><p class="text-xs text-gray-400">发放次数</p><p class="mt-0.5">{{ r.credits_issued }}</p></div>
+      <div><p class="text-xs text-gray-400">已兑换</p><p class="mt-0.5">{{ r.credits_redeemed }}</p></div>
+      <div><p class="text-xs text-gray-400">用户余额</p><p class="mt-0.5">{{ r.credits_outstanding }}</p></div>
+    </div>
+    {% if r.recent_batches %}
+    <div class="border-t border-gray-100 pt-3 mt-3">
+      <p class="text-xs text-gray-400 mb-2">最近批次</p>
+      <div class="space-y-1 text-xs">
+        {% for b in r.recent_batches %}
+        <div class="flex justify-between">
+          <span class="font-mono text-gray-600">{{ b.batch_no }}</span>
+          <span class="text-gray-500">{{ b.quantity }} 张 · {{ b.created_at | datetime }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ---- 快捷入口 ---- #}
+  <div class="bg-white rounded-lg border border-gray-200 p-5">
+    <h2 class="font-medium mb-3">快捷操作</h2>
+    <div class="flex flex-wrap gap-2 text-sm">
+      <a href="/web/admin/users" class="px-3 py-2 rounded border border-gray-300 hover:bg-gray-50">用户管理</a>
+      <a href="/web/admin/redeem" class="px-3 py-2 rounded border border-gray-300 hover:bg-gray-50">生成兑换码</a>
+      <a href="/web/admin/ai" class="px-3 py-2 rounded border border-gray-300 hover:bg-gray-50">AI 接口设置</a>
+    </div>
+  </div>
+
+</div>
+</div>
+{% endblock %}

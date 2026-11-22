@@ -87,7 +87,7 @@ app.add_middleware(
 )
 
 # ---- 路由 ----
-from app.api import admin, admin_ai, admin_redeem, admin_users, ai, auth, export, opml, users, web_pages  # noqa: E402
+from app.api import admin, admin_ai, admin_overview, admin_redeem, admin_users, ai, auth, export, opml, users, web_pages  # noqa: E402
 from app.api import link_pages, posts, sites  # noqa: E402
 
 app.include_router(auth.router)
@@ -100,6 +100,7 @@ app.include_router(admin.router)
 app.include_router(admin_users.router)
 app.include_router(admin_redeem.router)
 app.include_router(admin_ai.router)
+app.include_router(admin_overview.router)
 app.include_router(sites.router)
 app.include_router(link_pages.router)
 app.include_router(posts.web_router)

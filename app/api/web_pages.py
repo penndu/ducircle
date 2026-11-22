@@ -501,7 +501,7 @@ async def redeem_page(
 async def admin_home(
     request: Request,
     user: Annotated[User, Depends(require_page_admin)],
-    tab: str = Query(default="users", pattern="^(users|redeem|ai)$"),
+    tab: str = Query(default="overview", pattern="^(overview|users|redeem|ai)$"),
 ) -> Response:
     """管理员中心统一入口。
 
@@ -512,6 +512,7 @@ async def admin_home(
     from urllib.parse import parse_qsl, urlencode
 
     target = {
+        "overview": "/web/admin/overview",
         "redeem": "/web/admin/redeem",
         "ai": "/web/admin/ai",
     }.get(tab, "/web/admin/users")
@@ -519,6 +520,23 @@ async def admin_home(
     if rest:
         target = f"{target}?{urlencode(rest)}"
     return RedirectResponse(target, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/admin/overview", include_in_schema=False)
+async def admin_overview_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_admin)],
+) -> Response:
+    """平台总览：友链/文章/兑换码/AI 用量等全站数字。仅管理员可见。"""
+    from app.services.admin_overview import build_admin_overview
+
+    overview = await build_admin_overview(db)
+    ctx = await _page_context(
+        request, user, await nav_counts(db), "admin-overview"
+    )
+    ctx.update(overview=overview, admin_tab="overview")
+    return render(request, "admin_overview.html", ctx)
 
 
 @router.get("/admin/users", include_in_schema=False)

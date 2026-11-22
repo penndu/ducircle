@@ -260,13 +260,18 @@ class TestAdminCenter:
 
         r = await c.get("/web/admin", follow_redirects=False)
         assert r.status_code == 307
-        assert r.headers["location"] == "/web/admin/users"
+        # v3.2.0 起管理员中心默认落到「总览」
+        assert r.headers["location"] == "/web/admin/overview"
 
         html = (await c.get("/web/admin/users")).text
+        assert "/web/admin/overview" in html
         assert "/web/admin/users" in html
         assert "/web/admin/redeem" in html
+        assert "/web/admin/ai" in html
+        assert "总览" in html
         assert "用户管理" in html
         assert "兑换码管理" in html
+        assert "AI 接口设置" in html
 
         r = await c.get("/web/admin?tab=redeem", follow_redirects=False)
         assert r.headers["location"] == "/web/admin/redeem"
