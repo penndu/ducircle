@@ -40,7 +40,7 @@
       {% for section, links in sections %}
       <p class="px-3 pt-3 pb-1 text-xs text-gray-400">{{ section }}</p>
       {% for href, label, page in links %}
-      {% set active = current_page == page or (page == 'admin' and current_page in ['admin-users', 'admin-redeem']) %}
+      {% set active = current_page == page or (page == 'admin' and current_page in ['admin-users', 'admin-redeem', 'admin-ai']) %}
       <a href="{{ href }}"
          {% if active %}style="background:var(--ds-brand);color:#fff"{% endif %}
          class="flex items-center justify-between px-3 py-2 rounded text-sm {% if active %}text-white{% else %}text-gray-700 hover:bg-gray-100{% endif %}">
@@ -87,7 +87,7 @@
     ('/web/settings', '设置', current_page == 'settings'),
   ] %}
   {% if current_user and current_user.is_admin %}
-    {% set tabs = tabs + [('/web/admin', '管理', current_page in ['admin-users', 'admin-redeem'])] %}
+    {% set tabs = tabs + [('/web/admin', '管理', current_page in ['admin-users', 'admin-redeem', 'admin-ai'])] %}
   {% endif %}
   {% for href, label, active in tabs %}
   <a href="{{ href }}"

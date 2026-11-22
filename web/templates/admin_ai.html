@@ -1,0 +1,147 @@
+{% extends "admin.html" %}
+{# 平台 AI 接口设置。主备两列，与设置页共用 settings-grid 的宽屏两列方案。 #}
+
+{% block title %}AI 接口设置 · {{ app_name }}{% endblock %}
+
+{% block admin_content %}
+<p class="text-sm text-gray-500 mb-4">
+  平台模式（用户用兑换次数）走这里的接口。主 API 调用失败会自动切到备 API。
+  {% if ai_source == 'env' %}
+  <span class="inline-block ml-1 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-xs">
+    当前沿用 .env 配置 —— 启用下方任一接口后即改由后台接管
+  </span>
+  {% else %}
+  <span class="inline-block ml-1 px-2 py-0.5 rounded bg-green-50 text-green-700 border border-green-200 text-xs">
+    当前由后台配置接管
+  </span>
+  {% endif %}
+</p>
+
+<div class="settings-grid">
+{% for cfg in ai_providers %}
+<div class="settings-col">
+  <form id="form-{{ cfg.slot }}" onsubmit="return saveProvider('{{ cfg.slot }}', event)"
+        class="bg-white rounded-lg border border-gray-200 p-5 mb-4">
+    <div class="flex items-center justify-between mb-1">
+      <h2 class="font-medium">{{ '主 API' if cfg.slot == 'primary' else '备 API' }}</h2>
+      <label class="inline-flex items-center cursor-pointer">
+        <input type="checkbox" id="enabled-{{ cfg.slot }}" {% if cfg.enabled %}checked{% endif %}
+               class="w-4 h-4 rounded border-gray-300">
+        <span class="ml-2 text-xs text-gray-500">启用</span>
+      </label>
+    </div>
+    <p class="text-xs text-gray-400 mb-4">
+      {% if cfg.slot == 'primary' %}优先使用；失败后自动切备。{% else %}主 API 失败时自动顶上。{% endif %}
+    </p>
+
+    <div class="space-y-3">
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">服务商</label>
+        <select id="provider-{{ cfg.slot }}" onchange="applyPreset('{{ cfg.slot }}')"
+                class="w-full px-3 py-2 rounded border border-gray-300 bg-white text-sm">
+          <option value="">自定义（OpenAI 兼容）</option>
+          {% for p in ai_provider_catalog %}
+          <option value="{{ p.key }}" {% if cfg.provider == p.key %}selected{% endif %}>{{ p.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">API 地址</label>
+        <input id="base_url-{{ cfg.slot }}" value="{{ cfg.base_url }}"
+               placeholder="https://api.example.com/v1"
+               class="w-full px-3 py-2 rounded border border-gray-300 text-sm font-mono">
+        <p class="text-xs text-gray-400 mt-1">OpenAI 兼容填到 /v1；Gemini 填到 /v1beta。留空用服务商预置地址。</p>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">模型</label>
+        <input id="model-{{ cfg.slot }}" value="{{ cfg.model }}"
+               placeholder="例如 MiniMax-M3.1-Flash"
+               class="w-full px-3 py-2 rounded border border-gray-300 text-sm font-mono">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-700 mb-1.5">API Key</label>
+        <input id="api_key-{{ cfg.slot }}" type="password" autocomplete="off" spellcheck="false"
+               placeholder="{% if cfg.has_key %}当前：{{ cfg.key_masked }}（留空不改）{% else %}粘贴 Key{% endif %}"
+               class="w-full px-3 py-2 rounded border border-gray-300 text-sm font-mono">
+        <label class="inline-flex items-center mt-2 text-xs text-gray-500 cursor-pointer">
+          <input type="checkbox" id="clear_key-{{ cfg.slot }}" class="w-3 h-3 mr-1.5">清空已保存的 Key
+        </label>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+      <button type="submit" class="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-700">保存</button>
+      <button type="button" onclick="testProvider('{{ cfg.slot }}')"
+              class="px-4 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">测试连接</button>
+    </div>
+    <p id="tip-{{ cfg.slot }}" class="hidden mt-3 text-xs px-3 py-2 rounded"></p>
+  </form>
+</div>
+{% endfor %}
+</div>
+
+<div class="bg-white rounded-lg border border-gray-200 p-5">
+  <h2 class="font-medium mb-3">切换与计费说明</h2>
+  <ul class="text-sm text-gray-600 space-y-2 list-disc pl-5 leading-relaxed">
+    <li>只要主/备任意一条启用，平台模式就完全用这里的配置，不再读 .env。</li>
+    <li>主 API 超时、限流、Key 失效时自动切备；内容安全拦截不切（换一家也没用）。</li>
+    <li>测试连接不扣任何用户额度。用户实际生成摘要仍按原规则扣免费额度或兑换次数。</li>
+    <li>用户选「自定义 AI」时走自己的 Key，不受这里影响。</li>
+  </ul>
+</div>
+{% endblock %}
+
+{% block admin_scripts %}
+const PRESETS = {{ ai_provider_catalog | tojson }};
+
+function applyPreset(slot) {
+  const key = document.getElementById('provider-' + slot).value;
+  const preset = PRESETS.find(p => p.key === key);
+  if (!preset) return;
+  document.getElementById('base_url-' + slot).value = preset.base_url;
+  document.getElementById('model-' + slot).value = preset.default_model;
+}
+
+function showTip(slot, msg, ok) {
+  const tip = document.getElementById('tip-' + slot);
+  tip.textContent = msg;
+  tip.className = 'mt-3 text-xs px-3 py-2 rounded ' +
+    (ok ? 'bg-green-50 text-green-800 border border-green-200'
+        : 'bg-red-50 text-red-700 border border-red-200');
+}
+
+async function saveProvider(slot, ev) {
+  ev.preventDefault();
+  const payload = {
+    provider: document.getElementById('provider-' + slot).value,
+    base_url: document.getElementById('base_url-' + slot).value,
+    model: document.getElementById('model-' + slot).value,
+    api_key: document.getElementById('api_key-' + slot).value,
+    style: document.getElementById('provider-' + slot).value === 'gemini' ? 'gemini' : 'openai',
+    enabled: document.getElementById('enabled-' + slot).checked,
+    clear_key: document.getElementById('clear_key-' + slot).checked,
+  };
+  try {
+    const d = await api('/api/admin/ai/providers/' + slot, {
+      method: 'PUT', body: JSON.stringify(payload),
+    });
+    showTip(slot, '已保存' + (d.has_key ? '（Key：' + d.key_masked + '）' : ''), true);
+    document.getElementById('api_key-' + slot).value = '';
+    document.getElementById('clear_key-' + slot).checked = false;
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showTip(slot, e.message, false);
+  }
+  return false;
+}
+
+async function testProvider(slot) {
+  showTip(slot, '测试中…', true);
+  try {
+    const d = await api('/api/admin/ai/providers/' + slot + '/test', { method: 'POST' });
+    showTip(slot, d.ok ? ('连接正常：' + (d.reply || '').slice(0, 60)) : ('失败：' + d.error), d.ok);
+  } catch (e) {
+    showTip(slot, e.message, false);
+  }
+}
+{% endblock %}

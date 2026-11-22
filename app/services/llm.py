@@ -123,16 +123,43 @@ class SummaryResult:
 
 
 class LLMClient:
-    """统一的 LLM 调用入口。"""
+    """统一的 LLM 调用入口。
 
-    def __init__(self, provider: str, api_key: str, model: str | None = None) -> None:
+    两种用法：
+    - 预置服务商：只传 provider，地址和默认模型从 PROVIDERS 查。
+    - 自定义接口：provider 传空串或自定义名，同时传 base_url / style。
+      管理员在后台填的 API 地址走这条路，不必事先在代码里登记服务商。
+    """
+
+    def __init__(
+        self,
+        provider: str,
+        api_key: str,
+        model: str | None = None,
+        *,
+        base_url: str | None = None,
+        style: str | None = None,
+    ) -> None:
         config = PROVIDERS.get(provider)
-        if config is None:
-            raise LLMError(f"不支持的服务商：{provider}")
+        if config is None and not base_url:
+            raise LLMError(f"不支持的服务商：{provider}；自定义接口请填写 API 地址")
 
-        self.config = config
+        self.provider = provider or "custom"
         self.api_key = api_key
-        self.model = model or config.default_model
+        if style is not None:
+            self.style = style
+        elif config is not None:
+            self.style = config.style
+        else:
+            self.style = "openai"
+        if self.style not in ("openai", "gemini"):
+            raise LLMError(f"不支持的接口格式：{self.style}")
+        self.base_url = (base_url or (config.base_url if config else "")).rstrip("/")
+        if not self.base_url:
+            raise LLMError("API 地址不能为空")
+        self.model = model or (config.default_model if config else "")
+        if not self.model:
+            raise LLMError("模型名不能为空：自定义接口请在后台填写模型")
 
     async def complete(
         self,
@@ -155,14 +182,14 @@ class LLMClient:
             )
 
         headers = {"Content-Type": "application/json"}
-        if self.config.style == "gemini":
-            url = f"{self.config.base_url}/models/{self.model}:generateContent"
+        if self.style == "gemini":
+            url = f"{self.base_url}/models/{self.model}:generateContent"
             headers["x-goog-api-key"] = self.api_key
         else:
-            url = f"{self.config.base_url}/chat/completions"
+            url = f"{self.base_url}/chat/completions"
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        if self.config.style == "gemini":
+        if self.style == "gemini":
             payload: dict = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -217,7 +244,7 @@ class LLMClient:
         return self._extract_text(data)
 
     def _extract_text(self, data: dict) -> str:
-        if self.config.style == "gemini":
+        if self.style == "gemini":
             try:
                 candidates = data.get("candidates") or []
                 if not candidates:

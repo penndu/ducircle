@@ -501,7 +501,7 @@ async def redeem_page(
 async def admin_home(
     request: Request,
     user: Annotated[User, Depends(require_page_admin)],
-    tab: str = Query(default="users", pattern="^(users|redeem)$"),
+    tab: str = Query(default="users", pattern="^(users|redeem|ai)$"),
 ) -> Response:
     """管理员中心统一入口。
 
@@ -511,7 +511,10 @@ async def admin_home(
     """
     from urllib.parse import parse_qsl, urlencode
 
-    target = "/web/admin/redeem" if tab == "redeem" else "/web/admin/users"
+    target = {
+        "redeem": "/web/admin/redeem",
+        "ai": "/web/admin/ai",
+    }.get(tab, "/web/admin/users")
     rest = [(k, v) for k, v in parse_qsl(request.url.query) if k != "tab"]
     if rest:
         target = f"{target}?{urlencode(rest)}"
@@ -635,6 +638,32 @@ async def admin_redeem_page(
         admin_tab="redeem",
     )
     return render(request, "admin_redeem.html", ctx)
+
+
+@router.get("/admin/ai", include_in_schema=False)
+async def admin_ai_page(
+    request: Request,
+    db: DbSessionDep,
+    user: Annotated[User, Depends(require_page_admin)],
+) -> Response:
+    """平台 AI 接口设置。仅管理员可见。
+
+    直接复用 JSON 接口的查询函数——页面和 API 展示同一份数据，
+    不会出现「页面显示已配置、接口说没配」这种漂移。
+    """
+    from app.api.admin_ai import get_providers
+
+    data = await get_providers(user, db)
+    ctx = await _page_context(
+        request, user, await nav_counts(db), "admin-ai"
+    )
+    ctx.update(
+        ai_providers=data.items,
+        ai_source=data.source,
+        ai_provider_catalog=data.providers,
+        admin_tab="ai",
+    )
+    return render(request, "admin_ai.html", ctx)
 
 
 # ---- 认证页面 ----

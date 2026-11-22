@@ -206,7 +206,11 @@ async def _log_usage(
 
 
 def _build_client(user: User, settings) -> tuple[LLMClient, str]:
-    """按 ai_mode 构造客户端——与 quota_state 的分流必须一致。"""
+    """按 ai_mode 构造客户端——与 quota_state 的分流必须一致。
+
+    平台模式这里仍返回 .env 配置的客户端：库里没配置时走这条，
+    保证升级前后行为一致；库里有配置时由 _resolve_client 改走主备分发。
+    """
     if user.uses_custom_ai and user.has_own_ai_key:
         provider = user.ai_provider or settings.ai_platform_provider
         return (
@@ -226,6 +230,40 @@ def _build_client(user: User, settings) -> tuple[LLMClient, str]:
         ),
         settings.ai_platform_provider,
     )
+
+
+class _PlatformDispatcher:
+    """平台主备的调用包装：对外像 LLMClient，内部按主→备切换。"""
+
+    def __init__(self, clients: list) -> None:
+        self.clients = clients
+        self._used = clients[0]
+
+    @property
+    def model(self) -> str:
+        return self._used.client.model
+
+    @property
+    def provider(self) -> str:
+        return f"platform/{self._used.slot}"
+
+    async def complete(self, prompt: str, **kwargs) -> str:
+        from app.services.platform_ai import complete_on_platform
+
+        raw, used = await complete_on_platform(self.clients, prompt, **kwargs)
+        self._used = used
+        return raw
+
+
+def _resolve_client(user: User, settings, platform_clients: list | None = None):
+    """库里配了平台接口就用主备分发；否则走原来的 _build_client。
+
+    保留 _build_client 作为单一入口也照顾了现有测试：它们 monkeypatch
+    这个函数来避免真实网络调用，库表为空时依然生效。
+    """
+    if platform_clients:
+        return _PlatformDispatcher(platform_clients), "platform"
+    return _build_client(user, settings)
 
 
 async def summarize_post(
@@ -273,15 +311,23 @@ async def summarize_post(
         return skip("正文未变化，无需重新生成")
 
     # ---- 平台模式前置检查 ----
-    # 平台模式用的是服务端统一 Key（AI_PLATFORM_API_KEY）。没配时如果继续走，
-    # _build_client 会构造出 `Authorization: Bearer ` 这种非法请求头，
-    # 最终报出 "Illegal header value" 这种用户完全看不懂的底层错误。
-    if not user.uses_custom_ai and not settings.ai_platform_api_key:
-        logger.warning("平台 AI 未配置服务端 Key，用户 %d 无法生成摘要", user.id)
-        return skip(
-            "平台 AI 尚未配置服务端 Key，请联系管理员；"
-            "或到「设置 → AI 摘要」切换到自定义 AI 并填自己的 Key"
-        )
+    # 库里启用的接口优先；一条都没启用才回退 .env。
+    # 两处都没有 Key 时给出可读提示，别让底层报 "Illegal header value"。
+    platform_clients: list | None = None
+    if not user.uses_custom_ai:
+        from app.services.platform_ai import load_platform_clients
+
+        platform_clients, platform_source = await load_platform_clients(db)
+        # .env 回退仍走原来的 _build_client——保持升级前后行为一致，
+        # 也让依赖 mock _build_client 的测试继续有效。
+        if platform_source != "db":
+            platform_clients = None
+        if not platform_clients and not settings.ai_platform_api_key:
+            logger.warning("平台 AI 未配置服务端 Key，用户 %d 无法生成摘要", user.id)
+            return skip(
+                "平台 AI 尚未配置服务端 Key，请联系管理员；"
+                "或到「设置 → AI 摘要」切换到自定义 AI 并填自己的 Key"
+            )
 
     # ---- 额度检查 ----
     # state 后面还要用来判断「这次从哪一桶扣」，所以整体留着而不是只取 allowed
@@ -305,7 +351,7 @@ async def summarize_post(
 
     # ---- 调用模型 ----
     try:
-        client, provider = _build_client(user, settings)
+        client, provider = _resolve_client(user, settings, platform_clients)
     except LLMError as exc:
         logger.warning("构造客户端失败：%s", exc)
         return skip(str(exc))
