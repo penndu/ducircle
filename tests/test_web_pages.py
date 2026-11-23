@@ -342,3 +342,66 @@ class TestOpmlEndpoints:
         r = await client.get("/web/sites")
         assert "导入 OPML" in r.text
         assert "drop-zone" in r.text
+
+
+class TestPostsPagination:
+    @staticmethod
+    async def _seed_posts(factory, user_id, count):
+        from app.models import Post, Site
+
+        async with factory() as db:
+            site = Site(
+                user_id=user_id,
+                name="站点",
+                url=f"https://blog.example/{user_id}/",
+                url_hash=f"site-pager-{user_id}",
+            )
+            db.add(site)
+            await db.flush()
+            for i in range(count):
+                db.add(
+                    Post(
+                        user_id=user_id,
+                        site_id=site.id,
+                        title=f"文章{i}",
+                        link=f"https://blog.example/{user_id}/{i}",
+                        guid_hash=f"post-pager-{user_id}-{i}",
+                    )
+                )
+            await db.commit()
+
+    @pytest.mark.asyncio
+    async def test_posts_page_has_pager_with_prev_and_next(self, client_with_app):
+        client, factory = client_with_app
+        await register(client, "pager")
+        await self._seed_posts(factory, 1, 35)
+
+        first = (await client.get("/web/posts")).text
+        assert "第 1 / 2 页 · 共 35 篇" in first
+        assert '<a href="/web/posts?offset=30&amp;limit=30"' in first
+        assert 'pointer-events-none">上一页</a>' in first
+        assert 'pointer-events-none">下一页</a>' not in first
+
+        second = (await client.get("/web/posts?offset=30")).text
+        assert "第 2 / 2 页 · 共 35 篇" in second
+        assert '<a href="/web/posts?offset=0&amp;limit=30"' in second
+        assert 'pointer-events-none">下一页</a>' in second
+        assert 'pointer-events-none">上一页</a>' not in second
+
+    @pytest.mark.asyncio
+    async def test_pager_keeps_custom_limit(self, client_with_app):
+        client, factory = client_with_app
+        await register(client, "pager2")
+        await self._seed_posts(factory, 1, 12)
+
+        html = (await client.get("/web/posts?limit=10")).text
+        assert "第 1 / 2 页 · 共 12 篇" in html
+        assert '<a href="/web/posts?offset=10&amp;limit=10"' in html
+
+    @pytest.mark.asyncio
+    async def test_empty_posts_has_no_pager(self, client_with_app):
+        client, _ = client_with_app
+        await register(client, "pager3")
+        html = (await client.get("/web/posts")).text
+        assert "还没有文章" in html
+        assert "上一页" not in html

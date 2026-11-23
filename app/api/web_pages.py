@@ -358,8 +358,21 @@ async def posts_page(
         p.avatar = avatar
         posts.append(p)
 
-    ctx = await _page_context(request, user, await nav_counts(db), "posts")
-    ctx.update(posts=posts, has_more=has_more, offset=offset, limit=limit)
+    counts = await nav_counts(db)
+    total = counts["posts"]
+    total_pages = max(1, (total + limit - 1) // limit)
+    ctx = await _page_context(request, user, counts, "posts")
+    ctx.update(
+        posts=posts,
+        has_more=has_more,
+        offset=offset,
+        limit=limit,
+        total=total,
+        total_pages=total_pages,
+        page=offset // limit + 1,
+        prev_offset=max(0, offset - limit),
+        last_offset=(total_pages - 1) * limit,
+    )
     return render(request, "posts.html", ctx)
 
 
