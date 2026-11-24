@@ -7,6 +7,17 @@
 
 ---
 
+## [3.3.1] - 2026-11-24
+
+### 修复
+
+- **MySQL 8.4 认证兼容**：MySQL 升级到 8.4 后，`ducircle` 账号的认证插件变为
+  `caching_sha2_password`，asyncmy 需要 `cryptography` 做 RSA 密码加密。
+  镜像缺这个包导致每个新数据库连接都抛异常，后台页面与登录接口返回
+  `Internal Server Error`。现在把 `cryptography` 加入运行依赖。
+
+---
+
 ## [3.3.0] - 2026-11-23
 
 ### 新增
@@ -409,6 +420,7 @@ Alembic · trafilatura · feedparser · httpx · Docker
 
 ---
 
+[3.3.1]: https://github.com/penndu/ducircle/releases/tag/v3.3.1
 [3.0.0]: https://github.com/penndu/ducircle/releases/tag/v3.0.0
 [2.3.1]: https://github.com/penndu/ducircle/releases/tag/v2.3.1
 [2.3.0]: https://github.com/penndu/ducircle/releases/tag/v2.3.0

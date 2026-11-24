@@ -107,3 +107,16 @@ class TestChangelog:
     def test_readme_shows_version(self):
         content = Path("README.md").read_text(encoding="utf-8")
         assert f"v{_pyproject_version()}" in content
+
+
+class TestRuntimeDependencies:
+    def test_cryptography_is_a_runtime_dependency(self):
+        """MySQL 8.4 的 caching_sha2_password 认证需要 cryptography。
+
+        asyncmy 在模块级缓存导入结果，镜像里缺这个包时每个新数据库连接
+        都会抛 RuntimeError，后台页与登录接口全线 500（2026-11-24 事故）。
+        不能只在开发/迁移环境临时 pip install，必须写进运行依赖。
+        """
+        data = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+        deps = data["project"]["dependencies"]
+        assert any(dep.startswith("cryptography") for dep in deps)
