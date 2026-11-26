@@ -243,7 +243,9 @@ class TestSelectedBatchSummarize:
         html = (await c.get("/web/posts")).text
         assert "批量生成摘要" in html
         assert 'id="pick-all"' in html
-        assert "summary-pick" in html
+        # 文章流改为「全部文章可勾选」（批量删除也需要），类名由
+        # summary-pick 改为 post-pick，筛选标签同时上线。
+        assert "post-pick" in html
         assert "/api/ai/posts/batch-summarize" in html
 
         await _set_summary_mode(factory, 1, "manual")
@@ -289,3 +291,91 @@ class TestAdminCenter:
         await _register(admin, "alice")
         await _register(user, "bob")
         assert (await user.get("/web/admin")).status_code == 403
+
+
+class TestPostsSummaryTabsAndBatchDelete:
+    """文章流三标签筛选 + 批量删除（v3.4）。"""
+
+    @staticmethod
+    async def _seed(factory, user_id, items):
+        from app.models import Post, Site
+
+        ids = []
+        async with factory() as db:
+            site = Site(
+                user_id=user_id,
+                name="站点",
+                url=f"https://tab.example/{user_id}/",
+                url_hash=f"tab-site-{user_id}",
+            )
+            db.add(site)
+            await db.flush()
+            for i, (title, summary) in enumerate(items):
+                p = Post(
+                    user_id=user_id, site_id=site.id, title=title,
+                    link=f"https://tab.example/{user_id}/{i}",
+                    guid_hash=f"tab-{user_id}-{i}", summary=summary,
+                )
+                db.add(p)
+                await db.flush()
+                ids.append(p.id)
+            await db.commit()
+        return ids
+
+    @pytest.mark.asyncio
+    async def test_tabs_filter_and_counts(self, env):
+        factory, make_client = env
+        c = make_client()
+        await _register(c, "tabs")
+        await self._seed(factory, 1, [
+            ("已A", "摘要A"), ("已B", "摘要B"),
+            ("空串", ""), ("无A", None), ("无B", None),
+        ])
+
+        all_html = (await c.get("/web/posts")).text
+        assert "共 5 篇" in all_html
+        for label in ("全部文章流", "已摘要文章流", "未摘要文章流"):
+            assert label in all_html
+
+        sum_html = (await c.get("/web/posts?summary=summarized")).text
+        assert "已A" in sum_html and "已B" in sum_html
+        assert "无A" not in sum_html and "空串" not in sum_html
+        assert "共 2 篇" in sum_html
+
+        un_html = (await c.get("/web/posts?summary=unsummarized")).text
+        assert "无A" in un_html and "无B" in un_html and "空串" in un_html
+        assert "已A" not in un_html
+        assert "共 3 篇" in un_html
+        # 非 all 标签的分页链接必须保留 summary，否则翻页跳回全部
+        assert "summary=unsummarized" in un_html
+
+        # 非法值回落 all
+        assert "共 5 篇" in (await c.get("/web/posts?summary=xxx")).text
+
+    @pytest.mark.asyncio
+    async def test_batch_delete_syncs_counts_and_isolates_tenant(self, env):
+        factory, make_client = env
+        c = make_client()
+        await _register(c, "deluser")
+        ids = await self._seed(factory, 1, [("A", None), ("B", None), ("C", "摘要C")])
+
+        r = await c.post("/api/posts/batch-delete", json={"post_ids": ids[:2]})
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] == 2
+        assert "共 1 篇" in (await c.get("/web/posts")).text
+
+        # 参数校验
+        empty = await c.post("/api/posts/batch-delete", json={"post_ids": []})
+        too_many = await c.post(
+            "/api/posts/batch-delete", json={"post_ids": list(range(51))}
+        )
+        assert empty.status_code == 422
+        assert too_many.status_code == 422
+
+        # 租户隔离：删别人的文章查不到
+        other = make_client()
+        await _register(other, "other")
+        foreign_ids = await self._seed(factory, 2, [("别人的", None)])
+        r2 = await c.post("/api/posts/batch-delete", json={"post_ids": foreign_ids})
+        assert r2.status_code == 200
+        assert r2.json()["deleted"] == 0

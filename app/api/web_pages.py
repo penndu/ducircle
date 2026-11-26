@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.api.deps import client_ip, validate_registration
 from app.core.security import (
@@ -335,13 +335,33 @@ async def posts_page(
     user: Annotated[User, Depends(require_page_user)],
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    summary: Annotated[str, Query()] = "all",
 ) -> Response:
-    from sqlalchemy import or_
+    """文章流页。summary 三个标签：all / summarized / unsummarized。
+
+    筛选在 SQL 层做，分页 total 也是筛选后的 count —— 否则切到
+    「未摘要」时翻页会按全量文章算页码，翻两页就空了。
+    三个标签各自的计数单独查，供标签上的角标显示。
+    """
+    # 标签值与 SQL 条件的映射。非法值一律回落到 all。
+    # 空串摘要等同于「无摘要」，与模板里 {% if post.summary %} 的判断保持一致。
+    has_summary = and_(Post.summary.is_not(None), Post.summary != "")
+    no_summary = or_(Post.summary.is_(None), Post.summary == "")
+    summary_cond = {
+        "summarized": has_summary,
+        "unsummarized": no_summary,
+    }
+    if summary not in summary_cond and summary != "all":
+        summary = "all"
+
+    base_where = [Post.deleted_at.is_(None)]
+    if summary in summary_cond:
+        base_where.append(summary_cond[summary])
 
     stmt = (
         select(Post, Site.name, Site.url, Site.avatar)
         .join(Site, Post.site_id == Site.id)
-        .where(Post.deleted_at.is_(None))
+        .where(*base_where)
         .order_by(desc_nulls_last(Post.created), Post.id.desc())
         .offset(offset)
         .limit(limit + 1)
@@ -359,7 +379,22 @@ async def posts_page(
         posts.append(p)
 
     counts = await nav_counts(db)
-    total = counts["posts"]
+    count_all = counts["posts"]
+    count_summarized = (
+        await db.execute(
+            select(func.count(Post.id)).where(
+                Post.deleted_at.is_(None), has_summary
+            )
+        )
+    ).scalar_one()
+    count_unsummarized = count_all - count_summarized
+
+    # 当前标签筛选后的总数，分页完全基于它。
+    total = {
+        "all": count_all,
+        "summarized": count_summarized,
+        "unsummarized": count_unsummarized,
+    }[summary]
     total_pages = max(1, (total + limit - 1) // limit)
     ctx = await _page_context(request, user, counts, "posts")
     ctx.update(
@@ -372,6 +407,10 @@ async def posts_page(
         page=offset // limit + 1,
         prev_offset=max(0, offset - limit),
         last_offset=(total_pages - 1) * limit,
+        summary=summary,
+        count_all=count_all,
+        count_summarized=count_summarized,
+        count_unsummarized=count_unsummarized,
     )
     return render(request, "posts.html", ctx)
 

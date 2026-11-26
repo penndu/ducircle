@@ -3,20 +3,40 @@
 {% block title %}文章流 · {{ app_name }}{% endblock %}
 
 {% block page %}
-<div class="flex items-center justify-between mb-6">
+<div class="flex items-center justify-between mb-4">
   <h1 class="text-xl font-medium">文章流</h1>
   <span class="text-sm text-gray-400">共 {{ counts.posts }} 篇</span>
 </div>
 
+{# ---- 三个筛选标签。计数由后端按标签 SQL 条件算出，切换即整页刷新。 ---- #}
+{% set tabs = [
+  ('all', '全部文章流', count_all),
+  ('summarized', '已摘要文章流', count_summarized),
+  ('unsummarized', '未摘要文章流', count_unsummarized),
+] %}
+<div class="flex flex-wrap gap-2 mb-4">
+  {% for key, label, n in tabs %}
+  <a href="/web/posts?summary={{ key }}&amp;limit={{ limit }}"
+     class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-colors
+            {% if summary == key %}bg-gray-900 text-white border-gray-900{% else %}bg-white text-gray-600 border-gray-200 hover:bg-gray-50{% endif %}">
+    {{ label }}
+    <span class="text-xs px-1.5 py-0.5 rounded
+                 {% if summary == key %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-500{% endif %}">{{ n }}</span>
+  </a>
+  {% endfor %}
+</div>
+
 {% if posts %}
-<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+{# ---- 批量操作栏：全选 + 批量生成摘要 + 批量删除 ---- #}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 rounded-lg border border-gray-200 bg-white">
   <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
     <input type="checkbox" id="pick-all" onchange="toggleAll(this)"
            class="w-4 h-4 rounded border-gray-300 text-gray-900">
-    全选本页待摘要
+    全选本页
+    <span id="picked-count" class="text-xs text-gray-400">（已选 0）</span>
   </label>
-  <div class="flex items-center gap-3">
-    <span class="text-xs text-gray-400">
+  <div class="flex items-center gap-2 flex-wrap">
+    <span class="text-xs text-gray-400 mr-1">
       {% if current_user.summary_mode == 'manual' %}
       手动模式：勾选后批量生成
       {% else %}
@@ -27,18 +47,20 @@
             class="px-3 py-1.5 rounded bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed">
       批量生成摘要 (0)
     </button>
+    <button onclick="batchDelete()" id="del-btn" disabled
+            class="px-3 py-1.5 rounded border border-red-200 text-red-600 text-sm hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed">
+      批量删除 (0)
+    </button>
   </div>
 </div>
 
-<ul class="list-grid">
+<ul class="list-grid" id="post-list">
   {% for post in posts %}
   <li class="bg-white rounded-lg border border-gray-200 p-4">
     <div class="flex gap-3">
-      {% if not post.summary %}
-      <input type="checkbox" class="summary-pick mt-2 shrink-0 w-4 h-4 rounded border-gray-300 text-gray-900"
-             value="{{ post.id }}" onchange="updateBatch()"
-             aria-label="选中这篇文章以批量生成摘要">
-      {% endif %}
+      <input type="checkbox" class="post-pick mt-2 shrink-0 w-4 h-4 rounded border-gray-300 text-gray-900"
+             value="{{ post.id }}" data-summary="{{ '1' if post.summary else '0' }}"
+             onchange="updateBatch()" aria-label="选中这篇文章">
       <div class="w-10 h-10 rounded shrink-0 bg-gray-100 overflow-hidden grid place-items-center">
         {% if post.avatar %}
         <img src="{{ post.avatar }}" alt="" loading="lazy" class="w-full h-full object-cover"
@@ -59,7 +81,9 @@
              class="hover:text-gray-600">{{ post.site_name }}</a>
           <span>·</span>
           <span>{{ post.created | date if post.created else '日期未知' }}</span>
-          {% if not post.summary %}
+          {% if post.summary %}
+          <span class="px-1.5 py-0.5 rounded bg-green-50 text-green-700">已摘要</span>
+          {% else %}
           <span class="px-1.5 py-0.5 rounded bg-gray-100">待摘要</span>
           {% endif %}
         </p>
@@ -92,7 +116,13 @@
 </ul>
 
 <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-sm">
-  {% set base = '/web/posts?offset=' %}
+  {# 全部标签省略 summary 参数（它是默认值，URL 更短）；其它标签必须带上，
+     否则翻页会跳回全部文章流。 #}
+  {% if summary == 'all' %}
+    {% set base = '/web/posts?offset=' %}
+  {% else %}
+    {% set base = '/web/posts?summary=' ~ summary ~ '&offset=' %}
+  {% endif %}
   {% set tail = '&limit=' ~ limit %}
   <a href="{{ base }}0{{ tail }}"
      class="px-3 py-1.5 rounded border {% if offset > 0 %}border-gray-300 text-gray-700 hover:bg-gray-50{% else %}border-gray-100 text-gray-300 pointer-events-none{% endif %}">首页</a>
@@ -107,42 +137,88 @@
 
 {% else %}
 <div class="bg-white rounded-lg border border-gray-200 p-10 text-center">
+  {% if summary == 'all' %}
   <p class="text-gray-500 mb-1">还没有文章</p>
   <p class="text-sm text-gray-400">添加友链后等待抓取，或在友链管理页点「抓取」立即触发</p>
+  {% else %}
+  <p class="text-gray-500 mb-1">该分类下没有文章</p>
+  <p class="text-sm text-gray-400">切换到「全部文章流」查看所有文章</p>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
 
 {% block page_scripts %}
+// 一次性操作反馈：reload 后仍能显示 toast（结果跨刷新保留）。
+function flash(msg, ok = true) {
+  try { sessionStorage.setItem('posts_flash', JSON.stringify({ msg, ok })); } catch (e) {}
+}
+(function consumeFlash() {
+  try {
+    const raw = sessionStorage.getItem('posts_flash');
+    if (raw) {
+      sessionStorage.removeItem('posts_flash');
+      const f = JSON.parse(raw);
+      showToast(f.msg, f.ok !== false);
+    }
+  } catch (e) {}
+})();
+
+function pickedBoxes() {
+  return [...document.querySelectorAll('.post-pick:checked')];
+}
 function pickedIds() {
-  return [...document.querySelectorAll('.summary-pick:checked')].map(el => Number(el.value));
+  return pickedBoxes().map(el => Number(el.value));
+}
+// 批量生成只针对「未摘要」的选中项；已摘要的不会重复送进 AI 任务。
+function pendingIds() {
+  return pickedBoxes().filter(el => el.dataset.summary === '0').map(el => Number(el.value));
 }
 
 function updateBatch() {
-  const btn = document.getElementById('batch-btn');
-  if (!btn) return;
-  const n = pickedIds().length;
-  btn.disabled = n === 0 || n > 50 || !!window._batchRunning;
-  btn.textContent = window._batchRunning ? '生成中…' : `批量生成摘要 (${n})`;
+  const total = pickedIds().length;
+  const pending = pendingIds().length;
+  const batchBtn = document.getElementById('batch-btn');
+  const delBtn = document.getElementById('del-btn');
+  const busy = !!window._batchRunning || !!window._deleteRunning;
+  const pickedCount = document.getElementById('picked-count');
+  if (pickedCount) pickedCount.textContent = `（已选 ${total}）`;
+  if (batchBtn) {
+    batchBtn.disabled = busy || pending === 0 || pending > 50;
+    // 生成中由轮询负责刷新进度文案，这里只给个初始态，别把它改回计数。
+    if (!window._batchRunning) batchBtn.textContent = `批量生成摘要 (${pending})`;
+    else if (!batchBtn.textContent.startsWith('生成中')) batchBtn.textContent = '生成中…';
+  }
+  if (delBtn) {
+    delBtn.disabled = busy || total === 0 || total > 50;
+    delBtn.textContent = `批量删除 (${total})`;
+  }
+  // 全选框的 checked / 半选状态
+  const boxes = [...document.querySelectorAll('.post-pick')];
+  const all = document.getElementById('pick-all');
+  if (all) {
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    all.indeterminate = !all.checked && boxes.some(b => b.checked);
+  }
 }
 
 function toggleAll(el) {
-  document.querySelectorAll('.summary-pick').forEach(cb => { cb.checked = el.checked; });
+  document.querySelectorAll('.post-pick').forEach(cb => { cb.checked = el.checked; });
   updateBatch();
 }
 
 async function batchSummarize() {
-  const ids = pickedIds();
-  if (!ids.length) return showToast('先勾选要生成的文章', false);
+  const ids = pendingIds();
+  const skipped = pickedIds().length - ids.length;
+  if (!ids.length) return showToast('所选文章均已有摘要，无需生成', false);
   if (ids.length > 50) return showToast('一次最多 50 篇', false);
+  const tip = `将为 ${ids.length} 篇未摘要文章生成摘要${skipped ? `（跳过 ${skipped} 篇已摘要）` : ''}，确定继续？`;
+  if (!confirm(tip)) return;
 
-  const btn = document.getElementById('batch-btn');
   window._batchRunning = true;
-  btn.disabled = true;
-  btn.textContent = '生成中…';
+  updateBatch();
   try {
-    // 记下旧状态的时间戳：Redis 里可能留着上一次的 done，
-    // 不清掉的话刚点下去就会被当成「上一步已完成」直接刷新。
+    // 记下旧状态时间戳，避免把上一次的 done 当成这次已完成。
     let before = {};
     try { before = await api('/api/ai/batch-status'); } catch (e) { /* 状态服务不可用 */ }
     await api('/api/ai/posts/batch-summarize', {
@@ -172,9 +248,9 @@ async function pollBatchStatus(staleAt) {
     }
     window._batchRunning = false;
     if (s.state === 'done') {
-      showToast(`完成：生成 ${s.generated} 篇，跳过 ${s.skipped} 篇`);
+      flash(`完成：生成 ${s.generated} 篇，跳过 ${s.skipped} 篇`);
     } else {
-      showToast(s.error || '生成失败，请看设置里的额度与 Key', false);
+      flash(s.error || '生成失败，请看设置里的额度与 Key', false);
     }
     location.reload();
     return;
@@ -182,6 +258,29 @@ async function pollBatchStatus(staleAt) {
   window._batchRunning = false;
   updateBatch();
   showToast('耗时较长，请稍后刷新页面查看结果', false);
+}
+
+async function batchDelete() {
+  const ids = pickedIds();
+  if (!ids.length) return showToast('先勾选要删除的文章', false);
+  if (ids.length > 50) return showToast('一次最多 50 篇', false);
+  if (!confirm(`确定删除选中的 ${ids.length} 篇文章吗？此操作不可撤销。`)) return;
+
+  window._deleteRunning = true;
+  updateBatch();
+  try {
+    const r = await api('/api/posts/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ post_ids: ids }),
+    });
+    const skipped = ids.length - (r.deleted ?? ids.length);
+    flash(`已删除 ${r.deleted ?? ids.length} 篇${skipped ? `，${skipped} 篇不存在已跳过` : ''}`);
+    location.reload();
+  } catch (e) {
+    window._deleteRunning = false;
+    updateBatch();
+    showToast(e.message, false);
+  }
 }
 
 async function generateSummary(id, btn) {
@@ -192,7 +291,7 @@ async function generateSummary(id, btn) {
   try {
     const result = await api(`/api/ai/posts/${id}/summarize`, { method: 'POST' });
     if (result?.ok) {
-      showToast('摘要已生成', true);
+      flash('摘要已生成', true);
       location.reload();
       return;
     }
@@ -209,7 +308,11 @@ async function deletePost(id) {
   if (!confirm('确定删除这篇文章吗？')) return;
   try {
     await api(`/api/posts/${id}`, { method: 'DELETE' });
+    flash('已删除 1 篇');
     location.reload();
   } catch (e) { showToast(e.message, false); }
 }
+
+// 首屏按当前勾选状态初始化按钮（一般为 0）。
+updateBatch();
 {% endblock %}

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserKey, CurrentUserSession, DbSession
@@ -107,6 +107,32 @@ async def list_posts(
         )
         for post, site_name, site_url, avatar in rows
     ]
+
+
+class BatchDeleteIn(BaseModel):
+    # 与批量摘要一致，一次最多 50 篇，防止误操作一次清空整个文章流。
+    post_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+@web_router.post("/batch-delete", summary="批量删除文章")
+async def batch_delete_posts(
+    payload: BatchDeleteIn, user: CurrentUserSession, db: DbSession
+) -> dict:
+    """文章页勾选批量删除。
+
+    用 POST 而非 DELETE，是因为 DELETE 带 JSON body 在部分代理/客户端上
+    会被丢弃。租户归属由 ORM 过滤器保证：传别人的 ID 查不到，直接跳过。
+    """
+    ids = list(dict.fromkeys(payload.post_ids))
+    posts = (
+        await db.execute(
+            select(Post).where(Post.id.in_(ids), Post.deleted_at.is_(None))
+        )
+    ).scalars().all()
+    deleted = len(posts)
+    for post in posts:
+        await db.delete(post)
+    return {"ok": True, "deleted": deleted, "requested": len(ids)}
 
 
 @web_router.delete("/{post_id}", summary="删除文章")
